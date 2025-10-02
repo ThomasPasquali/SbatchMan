@@ -1,20 +1,21 @@
-### Features
+### Main features
 - Import cluster config from YAML file
-- Run jobs from job config from YAML file
-- Get jobs
+- Run jobs from job config YAML file
+- List queued and finished jobs
 - Export/import jobs (including results) as .zip file
+- Python library for job management
 
 ### Frontend
 - CLI with TUI
-  - Ratatui crate
+  - Implemented using Clap (for parsing CLI arguments) and Ratatui (for TUI)
   (inspiration: https://github.com/MAIF/yozefu)
-  - Monitor active and archived jobs
-    - View job logs
-  - View and manage cluster configs
-- Python library
+  - Features:
+    - Monitor active and archived jobs
+      - View job logs
+    - View and manage cluster configs
 
-### Library API (Rust)
-Main operations:
+### Core operations (Rust)
+Main functions:
 - Run jobs from job config file: `run_jobs_from_file(path: &str) -> Result<()>`
   - Parse jobs from job config file: `parse_jobs_from_file(path: &str) -> Result<Vec<Job>>`
   - Launch jobs: `launch_jobs(jobs: &[Job]) -> Result<()>`
@@ -23,8 +24,6 @@ Main operations:
 - Import jobs: `import_jobs(path: &str) -> Result<()>`
 - Import cluster configs from file: `import_cluster_configs_from_file(path: &str) -> Result<()>`
 - Get cluster config from name: `get_cluster_config(name: &str) -> Result<ClusterConfig>`
-
-Backend operations:
 - Get sbatchman path: `get_sbatchman_path() -> Result<String>`
 - Initialize database: `init_db(path: &str) -> Result<()>`
 - Migrate database schema: `migrate_db(path: &str) -> Result<()>`
