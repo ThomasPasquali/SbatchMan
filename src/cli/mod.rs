@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::api;
+use crate::core;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -27,15 +27,15 @@ enum Commands {
 pub fn main() {
   let cli = Cli::parse();
 
-  let connection = &mut api::establish_connection();
+  let connection = &mut core::establish_connection();
 
   match &cli.command {
     Some(Commands::AddCluster { cluster_name, scheduler }) => {
       println!("Adding cluster '{}' with scheduler '{}'", cluster_name, scheduler);
-      api::create_cluster(connection, cluster_name, scheduler);
+      core::create_cluster(connection, cluster_name, scheduler);
     },
     Some(Commands::ListClusters) => {
-      let results = api::list_clusters(connection);
+      let results = core::list_clusters(connection);
       println!("Displaying {} clusters", results.len());
       for cluster in results {
         println!(

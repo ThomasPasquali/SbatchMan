@@ -1,5 +1,5 @@
 mod cli;
-mod api;
+mod core;
 
 fn main() {
   cli::main();
