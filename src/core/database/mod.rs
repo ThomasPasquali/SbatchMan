@@ -25,13 +25,13 @@ use super::database::{
 use self::models::Cluster;
 
 pub fn create_cluster(conn: &mut SqliteConnection, cluster_name: &str, scheduler: &str) -> Cluster {
-  let new_post = NewCluster {
+  let new_cluster = NewCluster {
     cluster_name: cluster_name,
     scheduler: Scheduler::from_str(scheduler).unwrap(),
   };
 
   diesel::insert_into(clusters::table)
-    .values(&new_post)
+    .values(&new_cluster)
     .returning(Cluster::as_returning())
     .get_result(conn)
     .expect("Error saving new cluster")
