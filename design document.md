@@ -1,166 +1,173 @@
-## Tasks:
-- Python library & deployment (PyO3)
-- TUI
-- Core operations
-- Testing
+# Design Document: `sbatchman`
 
-## Main features
-- Import cluster config from YAML file
-- Run jobs from job config YAML file
-- List queued and finished jobs
-- Export/import jobs (including results) as .zip file
-- Python library for job management
+## Overview
 
-### Frontend
-- CLI with TUI
-  - Implemented using Clap (for parsing CLI arguments) and Ratatui (for TUI)
-  (inspiration: https://github.com/MAIF/yozefu)
-  - Features:
-    - Monitor active and archived jobs
-      - View job logs
-    - Management of jobs & filtering
-    - View and manage cluster configs
+### Project Vision
 
-### Core operations (Rust)
-Main functions:
-- Run jobs from job config file: `run_jobs_from_file(path: &str) -> Result<()>`
-  - Parse jobs from job config file: `parse_jobs_from_file(path: &str) -> Result<Vec<Job>>`
-  - Launch jobs: `launch_jobs(jobs: &[Job]) -> Result<()>`
-- Get jobs: `get_jobs(filter: JobFilter) -> Result<Vec<Job>>`
-- Export jobs: `export_jobs(filter: JobFilter, path: &str) -> Result<()>`
-- Import jobs: `import_jobs(path: &str) -> Result<()>`
-- Import cluster configs from file: `import_cluster_configs_from_file(path: &str) -> Result<()>`
-- Get cluster config from name: `get_cluster_config(name: &str) -> Result<ClusterConfig>`
-- Get sbatchman path: `get_sbatchman_path() -> Result<String>`
-- Initialize database: `init_db(path: &str) -> Result<()>`
-- Migrate database schema: `migrate_db(path: &str) -> Result<()>`
+`sbatchman` is a comprehensive tool designed to simplify the management and execution of job submissions on High-Performance Computing (HPC) clusters. It provides a Rust core, an interactive Terminal User Interface (TUI), and a Python library to streamline the process of running code experiments, from configuration and submission to monitoring and archiving.
 
-### Job Filter Specification
+### Core Features
 
-The job filter allows users to query jobs based on specific criteria. It is implemented as a struct in Rust and supports filtering by multiple fields.
+  * **Declarative Job Configuration:** Define clusters and jobs using a powerful and flexible YAML configuration.
+  * **Automated Job Generation:** Automatically generate and submit job variants based on combinations of parameters.
+  * **Interactive TUI:** Monitor active jobs, view logs, manage configurations, and browse job history through an intuitive terminal interface.
+  * **Reliable State:** Track all jobs and configurations in a local SQLite database.
+  * **Python Library:** Integrate job management directly into Python scripts and data analysis workflows.
+  * **Portability:** Export and import jobs, including their results, as self-contained `.zip` archives for easy sharing and reproducibility.
 
-#### Rust Struct
+### Architecture
+
+The system is composed of three primary components:
+
+  * **Rust Core:** A high-performance engine responsible for all core logic, including configuration parsing, job scheduling, state management, and direct interaction with the system.
+  * **TUI Frontend:** An interactive terminal application for real-time monitoring and management.
+  * **Python Library:** A Python wrapper around the Rust core, enabling scripting and integration with other Python libraries for data analysis and plotting.
+
+## Technical Specification
+
+### Core Operations (Rust API)
+
+The Rust core exposes the following primary functions for managing jobs, configurations, and the application state.
+
+| Function                                     | Description                                                               | Return Type      |
+| -------------------------------------------- | ------------------------------------------------------------------------- | ---------------- |
+| `run_jobs_from_file(path: &str)`             | Parses and launches all jobs defined in a job configuration file.         | `Result<()>`      |
+| `parse_jobs_from_file(path: &str)`           | Parses a job configuration file and returns the generated jobs without launching them. | `Result<Vec<Job>>` |
+| `launch_jobs(jobs: &[Job])`                   | Submits a slice of `Job` objects to the appropriate cluster schedulers.   | `Result<()>`      |
+| `get_jobs(filter: JobFilter)`                | Retrieves a list of jobs from the database that match the filter criteria. | `Result<Vec<Job>>` |
+| `export_jobs(filter: JobFilter, path: &str)` | Exports jobs matching the filter (including results) to a `.zip` file.    | `Result<()>`      |
+
+  * `import_jobs(path: &str)`                  | Imports jobs from a `.zip` archive into the database.                     | `Result<()>`      |
+    | `import_cluster_configs_from_file(path: &str)` | Imports cluster configurations from a YAML file into the database.        | `Result<()>`      |
+    | `get_cluster_config(name: &str)`             | Retrieves a specific cluster configuration by name.                       | `Result<ClusterConfig>` |
+    | `get_sbatchman_path()`                       | Returns the root directory path for `sbatchman` data and databases.       | `Result<String>`  |
+    | `init_db(path: &str)`                        | Initializes the SQLite database at the given path.                        | `Result<()>`      |
+    | `migrate_db(path: &str)`                     | Applies necessary schema migrations to the database.                      | `Result<()>`      |
+
+### TUI Frontend
+
+The TUI provides the primary interactive experience for the user.
+
+  * **Technology Stack:**
+    * **CLI Parsing:** `Clap`
+    * **TUI Rendering:** `Ratatui`
+    * *(Inspiration: [MAIF/yozefu](https://github.com/MAIF/yozefu))*
+  * **Features:**
+    * **Job Monitoring:** View lists of active, queued, and archived jobs with real-time updates and pagination support.
+    * **Log Viewer:** Directly view the `stdout`/`stderr` logs for any selected job.
+    * **Job Management:** Perform operations on jobs (e.g., cancel, archive, re-run).
+    * **Advanced Filtering:** Apply filters to narrow down the list of displayed jobs.
+    * **Configuration Management:** View and manage cluster configurations stored in the database.
+
+### 2.3. Python Library
+
+A Python library will be provided to access the core `sbatchman` functionality.
+
+  * **Binding Technology:** `PyO3`
+  * **Purpose:** To enable users to retrieve jobs directly from within Python scripts, Jupyter notebooks, or other analysis tools.
+
+## Storage and Data Model
+
+`sbatchman` uses a local SQLite database to persist all state.
+
+### Database Schema
+
+#### **Table: `Cluster`**
+
+Stores information about available compute clusters.
+
+  * `id` (INTEGER, Primary Key)
+  * `cluster_name` (TEXT)
+  * `scheduler` (TEXT, e.g., "slurm", "pbs")
+  * `max_jobs` (INTEGER)
+
+#### **Table: `Config`**
+
+Stores specific configurations for submitting jobs to a cluster.
+
+  * `id` (INTEGER, Primary Key)
+  * `config_name` (TEXT)
+  * `cluster_id` (INTEGER, Foreign Key to `Cluster.id`)
+  * `flags` (TEXT, JSON Array)
+  * `env` (TEXT, JSON Array)
+
+#### **Table: `Job`**
+
+Stores detailed information for every job generated and submitted.
+
+  * `id` (INTEGER, Primary Key)
+  * `job_name` (TEXT)
+  * `config_id` (INTEGER, Foreign Key to `Config.id`)
+  * `submit_time` (DATETIME)
+  * `directory` (TEXT)
+  * `command` (TEXT)
+  * `status` (TEXT, Enum: `virtualqueue`, `queued`, `running`, `completed`, `failed`)
+  * `job_id` (INTEGER)
+  * `start_time` (DATETIME)
+  * `end_time` (DATETIME)
+  * `preprocess` (TEXT)
+  * `postprocess` (TEXT)
+  * `archived` (BOOLEAN)
+  * `variables` (TEXT, JSON Object)
+
+#### **Table: `VirtualQueue`**
+
+Manages jobs that are pending submission to the cluster scheduler due to limits.
+
+  * `enqueued_jobs` (TEXT, JSON array of Job IDs)
+
+### Job Filtering
+
+Jobs can be queried from the database using a flexible filter specification.
+
+#### Rust `JobFilter` Struct
+
 ```rust
 pub struct JobFilter {
-  pub name: Option<String>,          // Filter by job name (partial match)
-  pub status: Option<JobStatus>,     // Filter by job status (enum: pending, queued, running, completed, failed)
-  pub cluster: Option<String>,       // Filter by cluster name
-  pub config: Option<String>,        // Filter by configuration name
-  pub archived: Option<bool>,        // Filter by archived status
-  pub submit_time_range: Option<(NaiveDateTime, NaiveDateTime)>, // Filter by submit time range
-  pub end_time_range: Option<(NaiveDateTime, NaiveDateTime)>,    // Filter by end time range
+  pub name: Option<String>,
+  pub status: Option<JobStatus>,
+  pub cluster: Option<String>,
+  pub config: Option<String>,
+  pub archived: Option<bool>,
+  pub submit_time_range: Option<(NaiveDateTime, NaiveDateTime)>,
+  pub end_time_range: Option<(NaiveDateTime, NaiveDateTime)>,
 }
 ```
 
-#### Supported Filters
-- **Name**: Partial match on the job name.
-- **Status**: Filter by job status (e.g., `running`, `completed`).
-- **Cluster**: Filter jobs associated with a specific cluster.
-- **Configuration**: Filter jobs associated with a specific configuration.
-- **Archived**: Filter jobs based on whether they are archived or not.
-- **Submit Time Range**: Filter jobs submitted within a specific time range.
-- **End Time Range**: Filter jobs that ended within a specific time range.
+#### Supported Filter Criteria
 
-#### Example Usage
-```rust
-let filter = JobFilter {
-  name: Some("experiment".to_string()),
-  status: Some(JobStatus::Running),
-  cluster: None,
-  config: None,
-  archived: Some(false),
-  submit_time_range: None,
-  end_time_range: None,
-};
+  * **Name:** Partial, case-insensitive match on the job name.
+  * **Status:** Exact match on job status (`pending`, `running`, etc.).
+  * **Cluster:** Filter by the name of the cluster the job is associated with.
+  * **Configuration:** Filter by the name of the configuration used for the job.
+  * **Archived:** Filter jobs based on their archived status.
+  * **Submit/End Time Range:** Filter jobs that were submitted or ended within a specific date-time window.
 
-let jobs = get_jobs(filter).unwrap();
-```
+## Configuration File Specification
 
-### Storage description
-SQLite database with the following tables:
-Cluster:
-- id (primary key)
-- cluster_name
-- scheduler
-- max_jobs
+`sbatchman` uses YAML for defining clusters and jobs. This system is designed to be highly flexible, enabling the generation of many job variants from a concise definition.
 
-Config:
-- id (primary key)
-- config_name
-- cluster_id (foreign key to Cluster)
-- flags (json)
-- env (json)
+### Syntax and Concepts
 
-Job
-- id (primary key)
-- job_name
-- config_id (foreign key to Config)
-- submit_time
-- directory
-- command
-- status (enum: virtualqueue, queued, running, completed, failed)
-- job_id
-- start_time
-- end_time
-- preprocess
-- postprocess
-- archived
-- variables (json)
+  * **Includes:** Configuration files can be composed together using the `include: <path>` directive.
+  * **Variable Types:**
+    * **string:** A standard string value.
+    * **array:** A list of values, used for generating combinatorial job variants.
+    * **map:** A key-value dictionary.
+    * **`@dir(path)`:** A special directive that expands to an array of file/directory names within the specified path.
+    * **`@file(path)`:** A special directive that expands to an array of lines from the specified file.
+  * **Substitution Syntax:**
+    * **Simple Substitution:** `{var}` is replaced by the value of the variable `var`.
+    * **Python Block:** `{{ ... }}` allows for inline Python expressions for generating variables dynamically.
+      * `sbatchman` variables are accessible within the block and must be prefixed with a `$`.
+      * Examples: `{{$var}}`, `{{$map[key]}}`, `{{$map[$var]}}`.
+  * **Predefined Variables:**
+    * `work_dir`: The working directory where `sbatchman` was invoked.
+    * `out_dir`: The output directory for the job's results.
+    * `config_name`: The name of the cluster configuration being used.
+    * `cluster_name`: The name of the cluster being used.
 
-VirtualQueue
-- enqueued_jobs
-
-### Cluster configuration file
-
-variable types:
- - string
- - directory (@dir(...)) (can only be scalar)
- - file (@file(...)) (can only be scalar)
- - array
- - map (key-value pairs, keys are strings, values can be string or array)
-preprocess/command/postprocess can be an array or a scalar
-
-substitution syntax:
-  - {var}: simple variable substitution
-  - python block:
-    sbatchman variables are prepended with $, combinations need to be computed to create all jobs
-    {{$var}}: access simple variable
-    {{$map[key]}}: access map by key
-    {{$map[$var]}}: access map by sbatchman variable
-
-include prepends the included file
-
-predefined variables in job config:
-  - work_dir: working directory where sbatchman is run
-  - out_dir: output directory where job results are stored
-  - config_name: name of the cluster config used
-  - cluster_name: name of the cluster
-
-```yaml
-# variables.yaml
-variables:
-  interconnect:
-    # default: ["cpu", "gpu"]
-    cluster_map:
-    {
-      "clusterA": ["ethernet", "infiniband"],
-      "clusterB": ["ethernet"]
-    }
-  partition:
-    cluster_map:
-    {
-      "clusterA": ["cpu_A", "gpu_A"],
-      "clusterB": ["cpu_B"]
-    }
-  qos: {
-    "cpu_A": "normalcpu",
-    "gpu_A": "normalgpu",
-    "gpu_B": "normalgpu",
-  }
-  ncpus: [4, 8]
-  datasets: @dir(datasets/)  # directory, each file is a value
-  scales: @file(scales.txt) # file, each line is a value
-```
+### 4.2. Example: Cluster Configuration (`clusters_configs.yaml`)
 
 ```yaml
 # clusters_configs.yaml
@@ -178,9 +185,8 @@ clusters:
         cpus_per_task: "{ncpus}"
         mem: ["4G", "8G", "16G"]
         time: "01:00:00"
-        flags: [
-          "-G 10",
-        ]
+        flags:
+          - "-G 10"
         env:
           - "DATASET={dataset}"
           - "OMP_NUM_THREADS={ncpus}"
@@ -189,15 +195,16 @@ clusters:
     scheduler: pbs
     configs:
       - name: "mem_job_{mem}"
-        flags: [
-          "--cpus: 2",
-          "--mem: {mem}",
-          "--walltime: 01:00:00",
-        ]
+        flags:
+          - "--cpus: 2"
+          - "--mem: {mem}"
+          - "--walltime: 01:00:00"
 ```
 
-### Job configuration file
+### 4.3. Example: Job Configuration (`jobs.yaml`)
+
 ```yaml
+# jobs.yaml
 include: variables.yaml
 python:
   header: "import os\ndef my_func(x):\n  return x * 2"
@@ -205,13 +212,12 @@ python:
 variables:
   dataset_dir: @dir(datasets/images)
   gpu_list: @file(gpus.txt)
-  python_command: python3.10 # This is a simple string
-  runs: [100, 200]              # Explicit run counts
-  # flags: ['--flag1', '--flag2'] # Default CLI flags
+  python_command: python3.10
+  runs: [100, 200]
   flags:
     default: [100, 200]
     cluster_map: {
-      "clusterA": ['--flag1', '--flag2']
+      "clusterA": ['--flag1', '--flag2'],
       "clusterB": ['--flag3']
     }
 
@@ -219,26 +225,23 @@ command: python run.py --input {dataset_dir} --runs {runs} --gpus {gpu_list} {fl
 preprocess: echo "Preparing dataset {dataset_dir}"
 postprocess: echo "Cleaning up after {dataset_dir}"
 
-variables:
-  partition: [cpu, gpu]
-
 jobs:
   - name: baseline_experiment
     cluster_config: gpu_config_{gpu_list}
     scheduler: local
     variants:
-      - name: flag_{flags}           # Variant name
+      - name: flag_{flags}
       - name: custom_flag
         variables:
-          flags: ['--flag3']         # Override default flags
+          flags: ['--flag3']
 
   - name: other_experiment
     cluster_config: "{partition}_config"
     variables:
-      runs: [300, 400]               # Override global runs
+      runs: [300, 400]
+      partition: [cpu, gpu]
     command: python custom.py --file {dataset_dir} --runs {runs}
     preprocess: echo "Custom preprocess for config custom_exp_{dataset_dir}"
-    # Inherits top-level postprocess
     variants:
       - name: variant1
         variables:
@@ -254,3 +257,13 @@ jobs:
       weak_scaling_params: [(1, 1024), (2, 2048), (4, 4098)]
     command: python custom.py --n_cpus {weak_scaling.1} --array_size {weak_scaling.2}
 ```
+
+## Implementation Plan
+
+The development will be broken down into the following primary tasks:
+
+1.  **Core Operations:** Implement the fundamental Rust logic for parsing, state management, and job submission.
+2.  **Storage:** Set up the SQLite database, schema, and migration system.
+3.  **TUI:** Develop the interactive terminal frontend using Clap and Ratatui.
+4.  **Python Library:** Create the PyO3 bindings to expose the core API to Python.
+5.  **Testing:** Implement a comprehensive suite of unit and integration tests for all components.
