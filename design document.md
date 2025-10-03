@@ -1,4 +1,10 @@
-### Main features
+## Tasks:
+- Python library & deployment (PyO3)
+- TUI
+- Core operations
+- Testing
+
+## Main features
 - Import cluster config from YAML file
 - Run jobs from job config YAML file
 - List queued and finished jobs
