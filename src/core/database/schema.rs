@@ -5,6 +5,7 @@ diesel::table! {
         id -> Integer,
         cluster_name -> Text,
         scheduler -> Integer,
+        max_jobs -> Nullable<Integer>,
     }
 }
 
@@ -13,9 +14,8 @@ diesel::table! {
         id -> Integer,
         config_name -> Text,
         cluster_id -> Integer,
-        flags -> Jsonb,
-        env -> Jsonb,
-        max_jobs -> Nullable<Integer>,
+        flags -> Json,
+        env -> Json,
     }
 }
 
@@ -33,11 +33,19 @@ diesel::table! {
         preprocess -> Nullable<Text>,
         postprocess -> Nullable<Text>,
         archived -> Nullable<Integer>,
-        variables -> Jsonb,
+        variables -> Json,
+    }
+}
+
+diesel::table! {
+    virtualqueue (id) {
+        id -> Integer,
+        job_id -> Integer,
     }
 }
 
 diesel::joinable!(configs -> clusters (cluster_id));
 diesel::joinable!(jobs -> configs (config_id));
+diesel::joinable!(virtualqueue -> jobs (job_id));
 
-diesel::allow_tables_to_appear_in_same_query!(clusters, configs, jobs,);
+diesel::allow_tables_to_appear_in_same_query!(clusters, configs, jobs, virtualqueue,);

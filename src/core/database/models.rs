@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::schema::{clusters, configs, jobs};
 use diesel::{
   backend::Backend,
@@ -47,6 +49,17 @@ where
   }
 }
 
+impl Display for Scheduler {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let s = match self {
+      Scheduler::Local => "Local",
+      Scheduler::Slurm => "Slurm",
+      Scheduler::PBS => "PBS",
+    };
+    write!(f, "{}", s)
+  }
+}
+
 #[derive(Queryable, Selectable)]
 #[diesel(table_name = clusters)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
@@ -54,6 +67,7 @@ pub struct Cluster {
   pub id: i32,
   pub cluster_name: String,
   pub scheduler: Scheduler,
+  pub max_jobs: Option<i32>,
 }
 
 #[derive(Insertable)]
@@ -61,6 +75,7 @@ pub struct Cluster {
 pub struct NewCluster<'a> {
   pub cluster_name: &'a str,
   pub scheduler: Scheduler,
+  pub max_jobs: Option<i32>,
 }
 
 #[derive(Queryable, Selectable, Associations, Debug, PartialEq)]
@@ -72,7 +87,6 @@ pub struct Config {
   pub cluster_id: i32,
   pub flags: serde_json::Value,
   pub env: serde_json::Value,
-  pub max_jobs: Option<i32>,
 }
 
 #[derive(Insertable)]
@@ -82,7 +96,6 @@ pub struct NewConfig<'a> {
   pub cluster_id: i32,
   pub flags: &'a serde_json::Value,
   pub env: &'a serde_json::Value,
-  pub max_jobs: Option<i32>,
 }
 
 #[derive(Queryable, Selectable, Associations, Debug, PartialEq)]

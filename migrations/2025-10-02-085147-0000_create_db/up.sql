@@ -8,7 +8,7 @@ CREATE TABLE clusters (
 CREATE TABLE configs (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   config_name TEXT NOT NULL,
-  cluster_id REFERENCES clusters(id) ON DELETE CASCADE,
+  cluster_id INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
   flags TEXT NOT NULL,
   env TEXT NOT NULL
 );
@@ -16,15 +16,20 @@ CREATE TABLE configs (
 CREATE TABLE jobs (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   job_name TEXT NOT NULL,
-  config_id REFERENCES configs(id) ON DELETE CASCADE,
+  config_id INTEGER NOT NULL REFERENCES configs(id) ON DELETE CASCADE,
   submit_time INTEGER NOT NULL,
   directory TEXT NOT NULL,
   command TEXT NOT NULL,
-  status TEXT CHECK(status IN ('pending', 'queued', 'running', 'completed', 'failed')) NOT NULL,
+  status TEXT CHECK(status IN ('virtualqueue', 'queued', 'running', 'completed', 'failed')) NOT NULL,
   job_id TEXT,
   end_time INTEGER,
   preprocess TEXT,
   postprocess TEXT,
   archived INTEGER DEFAULT 0,
   variables TEXT NOT NULL
+);
+
+CREATE TABLE virtualqueue (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE
 );

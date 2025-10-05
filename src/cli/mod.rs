@@ -32,15 +32,15 @@ pub fn main() {
   match &cli.command {
     Some(Commands::AddCluster { cluster_name, scheduler }) => {
       println!("Adding cluster '{}' with scheduler '{}'", cluster_name, scheduler);
-      core::create_cluster(connection, cluster_name, scheduler);
+      core::create_cluster(connection, cluster_name, scheduler, None);
     },
     Some(Commands::ListClusters) => {
       let results = core::list_clusters(connection);
       println!("Displaying {} clusters", results.len());
       for cluster in results {
         println!(
-          "{}: {} ({})",
-          cluster.id, cluster.cluster_name, format!("{:?}", cluster.scheduler)
+          "{}: {} ({}, max_jobs: {:?})",
+          cluster.id, cluster.cluster_name, cluster.scheduler, cluster.max_jobs
         );
       }
     }

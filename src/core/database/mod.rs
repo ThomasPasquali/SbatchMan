@@ -24,10 +24,11 @@ use super::database::{
 
 use self::models::Cluster;
 
-pub fn create_cluster(conn: &mut SqliteConnection, cluster_name: &str, scheduler: &str) -> Cluster {
+pub fn create_cluster(conn: &mut SqliteConnection, cluster_name: &str, scheduler: &str, max_jobs: Option<i32>) -> Cluster {
   let new_cluster = NewCluster {
     cluster_name: cluster_name,
     scheduler: Scheduler::from_str(scheduler).unwrap(),
+    max_jobs,
   };
 
   diesel::insert_into(clusters::table)

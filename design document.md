@@ -4,23 +4,22 @@
 
 ### Project Vision
 
-`sbatchman` is a comprehensive tool designed to simplify the management and execution of job submissions on High-Performance Computing (HPC) clusters. It provides a Rust core, an interactive Terminal User Interface (TUI), and a Python library to streamline the process of running code experiments, from configuration and submission to monitoring and archiving.
+`sbatchman` is tool for managing, submitting, and tracking jobs on High-Performance Computing (HPC) clusters. Job configurations can be defined using simple YAML configuration files and submitted jobs can be monitored and managed using an interactive Terminal User Interface (TUI). `sbatchman` provides also a Python library to collect the outputs of jobs for further analysis and plotting.
 
 ### Core Features
 
-  * **Declarative Job Configuration:** Define clusters and jobs using a powerful and flexible YAML configuration.
-  * **Automated Job Generation:** Automatically generate and submit job variants based on combinations of parameters.
+  * **Job Configuration:** Define clusters and jobs using a powerful and flexible YAML configuration, with automatic generation of job variants based on parameter combinations.
   * **Interactive TUI:** Monitor active jobs, view logs, manage configurations, and browse job history through an intuitive terminal interface.
-  * **Reliable State:** Track all jobs and configurations in a local SQLite database.
-  * **Python Library:** Integrate job management directly into Python scripts and data analysis workflows.
+  * **Python Library:** Collect job results using a simple Python library, enabling easy integration with data analysis and plotting tools.
+  * **Reliability:** All state is stored in a local SQLite database.
   * **Portability:** Export and import jobs, including their results, as self-contained `.zip` archives for easy sharing and reproducibility.
 
 ### Architecture
 
 The system is composed of three primary components:
 
-  * **Rust Core:** A high-performance engine responsible for all core logic, including configuration parsing, job scheduling, state management, and direct interaction with the system.
-  * **TUI Frontend:** An interactive terminal application for real-time monitoring and management.
+  * **Rust Core:** An efficient engine responsible for all core logic, including configuration parsing, job scheduling and state management.
+  * **TUI Frontend:** An interactive terminal application for real-time job monitoring and management.
   * **Python Library:** A Python wrapper around the Rust core, enabling scripting and integration with other Python libraries for data analysis and plotting.
 
 ## Technical Specification
@@ -154,13 +153,13 @@ pub struct JobFilter {
     * **string:** A standard string value.
     * **array:** A list of values, used for generating combinatorial job variants.
     * **map:** A key-value dictionary.
-    * **`@dir(path)`:** A special directive that expands to an array of file/directory names within the specified path.
-    * **`@file(path)`:** A special directive that expands to an array of lines from the specified file.
+    * **per_cluster:** A special mapping that allows different values for different clusters.
+    * **`@dir path`:** A special directive that expands to an array of file/directory names within the specified path.
+    * **`@file path`:** A special directive that expands to an array of lines from the specified file.
   * **Substitution Syntax:**
-    * **Simple Substitution:** `{var}` is replaced by the value of the variable `var`.
+    * **Simple Substitution:** `{var}` is replaced by the value of the variable `var`. For maps, the syntax `{map[key]}` is used. If `key` is a variable, it should be prefixed with `$`, e.g., `{map[$var]}`.
     * **Python Block:** `{{ ... }}` allows for inline Python expressions for generating variables dynamically.
       * `sbatchman` variables are accessible within the block and must be prefixed with a `$`.
-      * Examples: `{{$var}}`, `{{$map[key]}}`, `{{$map[$var]}}`.
   * **Predefined Variables:**
     * `work_dir`: The working directory where `sbatchman` was invoked.
     * `out_dir`: The output directory for the job's results.
@@ -170,22 +169,52 @@ pub struct JobFilter {
 ### 4.2. Example: Cluster Configuration (`clusters_configs.yaml`)
 
 ```yaml
+
+# variables.yaml
+
+variables:
+  interconnect:
+    # default: ["cpu", "gpu"]
+    per_cluster:
+      clusterA: ["ethernet", "infiniband"]
+      clusterB: ["ethernet"]
+
+  partition:
+    per_cluster:
+      clusterA: ["cpu_A", "gpu_A"],
+      clusterB: ["cpu_B"]
+
+  qos:
+    map:
+      "cpu_A": "normalcpu"
+      "gpu_A": "normalgpu"
+      "gpu_B": "normalgpu"
+
+  ncpus: [4, 8]
+
+  datasets: @dir datasets/ # directory, each file is a value
+  scales: @file scales.txt # file, each line is a value
+
+```
+
+```yaml
 # clusters_configs.yaml
 include: variables.yaml
 
 clusters:
   clusterA:
     scheduler: slurm
-    default_conf:
+    defaults:
       account: "example_default_account"
     configs:
       - name: job_{partition}_{ncpus}
-        partition: "{partition}"
-        qos: "{{$qos[$partition]}}"
-        cpus_per_task: "{ncpus}"
-        mem: ["4G", "8G", "16G"]
-        time: "01:00:00"
-        flags:
+        params:
+          partition: "{partition}"
+          qos: "{qos[$partition]}"
+          cpus_per_task: "{ncpus}"
+          mem: ["4G", "8G", "16G"]
+          time: "01:00:00"
+        options:
           - "-G 10"
         env:
           - "DATASET={dataset}"
@@ -195,7 +224,7 @@ clusters:
     scheduler: pbs
     configs:
       - name: "mem_job_{mem}"
-        flags:
+        options:
           - "--cpus: 2"
           - "--mem: {mem}"
           - "--walltime: 01:00:00"
@@ -210,16 +239,15 @@ python:
   header: "import os\ndef my_func(x):\n  return x * 2"
 
 variables:
-  dataset_dir: @dir(datasets/images)
-  gpu_list: @file(gpus.txt)
+  dataset_dir: @dir datasets/images
+  gpu_list: @file gpus.txt
   python_command: python3.10
   runs: [100, 200]
   flags:
-    default: [100, 200]
-    cluster_map: {
+    default: ['--flag_default']
+    per_cluster:
       "clusterA": ['--flag1', '--flag2'],
       "clusterB": ['--flag3']
-    }
 
 command: python run.py --input {dataset_dir} --runs {runs} --gpus {gpu_list} {flags}
 preprocess: echo "Preparing dataset {dataset_dir}"
@@ -242,14 +270,6 @@ jobs:
       partition: [cpu, gpu]
     command: python custom.py --file {dataset_dir} --runs {runs}
     preprocess: echo "Custom preprocess for config custom_exp_{dataset_dir}"
-    variants:
-      - name: variant1
-        variables:
-          partition: [cpu]
-      - name: variant2
-        variables:
-          partition: ["cpu", "gpu"]
-        command: python custom_1.py --file {dataset_dir} --runs {runs}
 
   - name: weak_scaling
     cluster_config: other_cluster_config
