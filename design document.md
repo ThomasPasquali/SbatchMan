@@ -79,7 +79,7 @@ The TUI provides the primary interactive experience for the user.
     * **Advanced Filtering:** Apply filters to narrow down the list of displayed jobs.
     * **Configuration Management:** View and manage cluster configurations stored in the database.
 
-### 2.3. Python Library
+### Python Library
 
 A Python library will be provided to access the core `sbatchman` functionality.
 
@@ -187,7 +187,7 @@ pub struct JobFilter {
     * `config_name`: The name of the cluster configuration being used.
     * `cluster_name`: The name of the cluster being used.
 
-### 4.2. Example: Cluster Configuration (`clusters_configs.yaml`)
+### Example: Cluster Configuration (`clusters_configs.yaml`)
 
 ```yaml
 
@@ -251,7 +251,7 @@ clusters:
           - "--walltime: 01:00:00"
 ```
 
-### 4.3. Example: Job Configuration (`jobs.yaml`)
+### Example: Job Configuration (`jobs.yaml`)
 
 ```yaml
 # jobs.yaml
