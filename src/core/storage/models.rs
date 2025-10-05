@@ -61,8 +61,8 @@ impl Display for Scheduler {
 }
 
 #[derive(Queryable, Selectable)]
-#[diesel(table_name = clusters)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[diesel(table_name = clusters)]
 pub struct Cluster {
   pub id: i32,
   pub cluster_name: String,
@@ -71,6 +71,7 @@ pub struct Cluster {
 }
 
 #[derive(Insertable)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(table_name = clusters)]
 pub struct NewCluster<'a> {
   pub cluster_name: &'a str,

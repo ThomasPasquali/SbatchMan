@@ -11,38 +11,22 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-  /// does testing things
-  AddCluster {
-    /// cluster name
-    #[arg(short, long)]
-    cluster_name: String,
-
-    /// scheduler name
-    #[arg(short, long)]
-    scheduler: String,
+  Configure {
+    file: String,
   },
-  ListClusters,
 }
 
 pub fn main() {
   let cli = Cli::parse();
 
-  let connection = &mut core::establish_connection();
+  let mut sbatchman = core::Sbatchman::new().expect("Failed to initialize Sbatchman");
+
 
   match &cli.command {
-    Some(Commands::AddCluster { cluster_name, scheduler }) => {
-      println!("Adding cluster '{}' with scheduler '{}'", cluster_name, scheduler);
-      core::create_cluster(connection, cluster_name, scheduler, None);
-    },
-    Some(Commands::ListClusters) => {
-      let results = core::list_clusters(connection);
-      println!("Displaying {} clusters", results.len());
-      for cluster in results {
-        println!(
-          "{}: {} ({}, max_jobs: {:?})",
-          cluster.id, cluster.cluster_name, cluster.scheduler, cluster.max_jobs
-        );
-      }
+    Some(Commands::Configure { file }) => {
+      sbatchman
+        .import_clusters_configs_from_file(file)
+        .expect("Failed to import clusters and configs from file");
     }
     None => {}
   }

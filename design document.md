@@ -28,20 +28,41 @@ The system is composed of three primary components:
 
 The Rust core exposes the following primary functions for managing jobs, configurations, and the application state.
 
-| Function                                     | Description                                                               | Return Type      |
-| -------------------------------------------- | ------------------------------------------------------------------------- | ---------------- |
-| `run_jobs_from_file(path: &str)`             | Parses and launches all jobs defined in a job configuration file.         | `Result<()>`      |
-| `parse_jobs_from_file(path: &str)`           | Parses a job configuration file and returns the generated jobs without launching them. | `Result<Vec<Job>>` |
-| `launch_jobs(jobs: &[Job])`                   | Submits a slice of `Job` objects to the appropriate cluster schedulers.   | `Result<()>`      |
-| `get_jobs(filter: JobFilter)`                | Retrieves a list of jobs from the database that match the filter criteria. | `Result<Vec<Job>>` |
-| `export_jobs(filter: JobFilter, path: &str)` | Exports jobs matching the filter (including results) to a `.zip` file.    | `Result<()>`      |
+Here’s your markdown table transformed into a clean unordered list:
 
-  * `import_jobs(path: &str)`                  | Imports jobs from a `.zip` archive into the database.                     | `Result<()>`      |
-    | `import_cluster_configs_from_file(path: &str)` | Imports cluster configurations from a YAML file into the database.        | `Result<()>`      |
-    | `get_cluster_config(name: &str)`             | Retrieves a specific cluster configuration by name.                       | `Result<ClusterConfig>` |
-    | `get_sbatchman_path()`                       | Returns the root directory path for `sbatchman` data and databases.       | `Result<String>`  |
-    | `init_db(path: &str)`                        | Initializes the SQLite database at the given path.                        | `Result<()>`      |
-    | `migrate_db(path: &str)`                     | Applies necessary schema migrations to the database.                      | `Result<()>`      |
+- **`run_jobs_from_file(path: &str)`**: Parses and launches all jobs defined in a job configuration file.
+  *Return type:* `Result<()>`
+
+- **`parse_jobs_from_file(path: &str)`**: Parses a job configuration file and returns the generated jobs without launching them.
+  *Return type:* `Result<Vec<Job>>`
+
+- **`launch_jobs(jobs: &[Job])`**: Submits a slice of `Job` objects to the appropriate cluster schedulers.
+  *Return type:* `Result<()>`
+
+- **`get_jobs(filter: JobFilter)`**: Retrieves a list of jobs from the database that match the filter criteria.
+  *Return type:* `Result<Vec<Job>>`
+
+- **`export_jobs(filter: JobFilter, path: &str)`**: Exports jobs matching the filter (including results) to a `.zip` file.
+  *Return type:* `Result<()>`
+
+- **`import_jobs(path: &str)`**: Imports jobs from a `.zip` archive into the database.
+  *Return type:* `Result<()>`
+
+- **`import_cluster_configs_from_file(path: &str)`**: Imports cluster configurations from a YAML file into the database.
+  *Return type:* `Result<()>`
+
+- **`get_cluster_config(name: &str)`**: Retrieves a specific cluster configuration by name.
+  *Return type:* `Result<ClusterConfig>`
+
+- **`get_sbatchman_path()`**: Returns the root directory path for `sbatchman` data and databases.
+  *Return type:* `Result<String>`
+
+- **`init_db(path: &str)`**: Initializes the SQLite database at the given path.
+  *Return type:* `Result<()>`
+
+- **`migrate_db(path: &str)`**: Applies necessary schema migrations to the database.
+  *Return type:* `Result<()>`
+
 
 ### TUI Frontend
 
