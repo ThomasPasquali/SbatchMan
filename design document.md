@@ -134,7 +134,8 @@ Stores detailed information for every job generated and submitted.
 
 Manages jobs that are pending submission to the cluster scheduler due to limits.
 
-  * `enqueued_jobs` (TEXT, JSON array of Job IDs)
+  * `id` (INTEGER, Primary Key)
+  * `job_id` (INTEGER, Foreign Key to `Job.id`)
 
 ### Job Filtering
 
