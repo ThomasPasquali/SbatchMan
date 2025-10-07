@@ -12,14 +12,9 @@ cd SbatchMan
 
 # Install dependencies
 cargo build
-
-# Run the project
-cargo run
 ```
 
-Simple example:
+Examples:
 ```bash
-cargo run add-cluster --cluster-name my_cluster_name --scheduler Slurm
-
-cargo run list-clusters
+cargo run configure tests/clusters_configs.yaml
 ```

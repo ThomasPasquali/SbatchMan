@@ -1,0 +1,39 @@
+# variables.yaml
+# Defines reusable variables for configurations and jobs.
+# This is an example of strong scaling experiments.
+# These include different datasets, modes (user defined semantic), implementations (and related args)
+
+variables:
+  # Directory, each file is a value.
+  dataset: @dir datasets/
+
+  # File, each line is a value.
+  mode: @file modes.txt
+
+  # Explicit values list. Same as ["impl1", "impl2", "impl3"].
+  implementation:
+    - "impl1"
+    - "impl2"
+    - "impl3"
+
+  # This is basically a dictionary/map. The default value is optional.
+  # If the default value is not set, accessing undefined keys will result in an error. 
+  args:
+    default: ""
+    map:
+      "impl1": "--arg-for-impl1 --another-for-impl1"
+      "impl2": "--arg-for-impl2"
+
+  # This is a map that uses as key the name of the cluster.
+  nodes:
+    default: [1, 2, 4, 8]
+    per_cluster:
+      clusterA: [1, 2, 4]
+      clusterB: [1, 2, 4, 8, 16, 32]
+
+  # This is a variable with a single value that will be later overwritten
+  to_override: 'NOT OVERWRITTEN'
+
+
+
+

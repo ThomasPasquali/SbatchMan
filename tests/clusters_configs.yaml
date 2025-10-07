@@ -1,0 +1,85 @@
+# clusters_configs.yaml
+# Defines the SLURM/PBS/LOCAL configurations to link jobs to.
+
+# Include configurations and jobs common variables
+include: variables.yaml
+
+# This variables block will add new declarations
+variables:
+  # Define a map (cluster name)-> [available partitions] 
+  partition:
+    per_cluster:
+      clusterA: ["partition_A1", "partition_A2"]
+      clusterB: ["partition_B"]
+
+  # Define a map (partition)-> (qos) 
+  qos:
+    map:
+      partition_A1: 'regular1'
+      partition_A2: 'regular2'
+      partition_B: 'regular'
+
+  task_cpus: [1, 4, 8]
+
+# Values set here will be set on EVERY configuration
+# Note: they can be overwritten
+default_params:
+  env:
+    OMP_NUM_THREADS: "{task_cpus}"
+    CUSTOM_VAR: "its_value"
+
+clusters:
+  # The cluster names will be set during SbatchMan installation
+  clusterA:
+    # This will tell SbatchMan to use SLURM commands, e.g., `sbatch`
+    # Keys like `nodes`, `account` etc. will be mapped to the corresponding SLURM header
+    # Not supported headers can be specified using `extra_headers`
+    scheduler: slurm
+
+    # Values set here will be set on every `clusterA` configuration
+    # Note: they can be overwritten
+    default_params:
+      nodes: "{nodes}"
+      account: "example_account"
+      mem: "16G"
+      time: "01:00:00"
+      partition: "{partition}"
+      qos: "{qos[$partition]}"
+      cpus_per_task: "{task_cpus}"
+      env:
+        # This will override the default CUSTOM_VAR value
+        CUSTOM_VAR: "new_value"
+        ANOTHER_VAR: "only_for_clusterA"
+
+    configs:
+      # All these configs will use the default params
+      - name: "config_{nodes}-N_{ncpus}-CPU_{partition}"
+
+      # These configs will override `time`
+      - name: budget_{nodes}-N_{ncpus}-CPU_{partition}"
+        params:
+          time: "00:05:00"
+        # Each of the following headers will be prefixed with '#SBATCH '
+        extra_headers:
+          - "--exact"
+
+  clusterB:
+    scheduler: pbs
+    configs:
+      - name: "weird_but_plausible_{nodes}-N_{ncpus}-CPU"
+        params:
+          env:
+            OMP_NUM_THREADS: "{{task_cpus*nodes}}"
+        extra_headers:
+          - "--cpus: {{task_cpus*nodes}}"
+          - "--walltime: 01:00:00"
+
+  # clusterC will launch commands directly (not via a workload manager)
+  clusterC:
+    scheduler: local
+
+    configs:
+      - name: "config_{nodes}-N_{ncpus}-CPU"
+        params:
+          env:
+            OMP_NUM_THREADS: "{{task_cpus*nodes}}"
