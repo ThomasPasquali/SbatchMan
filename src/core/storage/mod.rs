@@ -4,20 +4,29 @@ pub mod schema;
 use diesel::prelude::*;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use log::debug;
+use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use std::{io, path::PathBuf};
 
+use crate::core::storage::models::ConfigWithCluster;
+
 use super::storage::{
   models::{Cluster, NewCluster, Config, NewConfig},
-  schema::clusters,
+  schema::{clusters},
 };
+
+#[derive(Serialize, Deserialize)]
+struct SbatchmanConfig {
+  cluster_name: String,
+}
+impl ::std::default::Default for SbatchmanConfig {
+    fn default() -> Self { Self { cluster_name: "".into() } }
+}
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 #[derive(Error, Debug)]
 pub enum StorageError {
-  #[error("Could not determine home directory")]
-  HomeDirNotFound,
   #[error("Could not read current directory")]
   CurrentDir(#[from] io::Error),
   #[error("Could not find .sbatchman directory")]
@@ -31,7 +40,7 @@ pub enum StorageError {
 }
 
 pub fn get_sbatchman_path() -> Result<PathBuf, StorageError> {
-  let home = dirs::home_dir().ok_or(StorageError::HomeDirNotFound)?;
+  let home = dirs::home_dir().unwrap_or(PathBuf::from("/"));
   let start = std::env::current_dir().map_err(StorageError::CurrentDir)?;
   let mut dir = start.clone();
 
@@ -91,9 +100,32 @@ pub fn create_cluster_configs(conn: &mut SqliteConnection, cluster_config: &mut 
   Ok(())
 }
 
-pub fn list_clusters(conn: &mut SqliteConnection) -> Vec<Cluster> {
-  use self::schema::clusters::dsl::*;
-  clusters
-    .load::<Cluster>(conn)
-    .expect("Error loading clusters")
+pub fn sbatchman_init(path: &PathBuf) -> Result<(), StorageError> {
+  let config: SbatchmanConfig = SbatchmanConfig::default();
+  confy::store_path(path.join("sbatchman.conf"), config).map_err(|e| StorageError::OperationError(e.to_string()))?;
+  Ok(())
+}
+
+pub fn set_cluster_name(path: &PathBuf, name: &str) -> Result<(), StorageError> {
+  let mut config: SbatchmanConfig = confy::load_path(path.join("sbatchman.conf")).map_err(|e| StorageError::OperationError(e.to_string()))?;
+  config.cluster_name = name.to_string();
+  confy::store_path(path.join("sbatchman.conf"), config).map_err(|e| StorageError::OperationError(e.to_string()))?;
+  Ok(())
+}
+
+pub fn get_cluster_name(path: &PathBuf) -> Result<String, StorageError> {
+  let config: SbatchmanConfig = confy::load_path(path.join("sbatchman.conf")).map_err(|e| StorageError::OperationError(e.to_string()))?;
+  Ok(config.cluster_name)
+}
+
+pub fn get_config(conn: &mut SqliteConnection, config_name_: &str) -> Result<(Config, Cluster), StorageError> {
+  use self::schema::configs::dsl::*;
+  let mut config_with_cluster = configs
+    .filter(config_name.eq(config_name_))
+    .inner_join(clusters::table)
+    .select((Config::as_select(), Cluster::as_select()))
+
+    .load::<(Config, Cluster)>(conn)
+    .map_err(|e| StorageError::OperationError(e.to_string()))?;
+  return Ok(config_with_cluster.pop().ok_or(StorageError::OperationError("Config not found".into()))?);
 }

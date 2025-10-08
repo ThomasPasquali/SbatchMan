@@ -30,6 +30,11 @@ The Rust core exposes the following primary functions for managing jobs, configu
 
 Here’s your markdown table transformed into a clean unordered list:
 
+- [x] **`get_sbatchman_path()`**: Returns the root directory path for `sbatchman` data and databases. *Return type:* `PathBuf`*
+- [x] **`establish_connection(path: PathBuf)`**: Initializes the SQLite database connection and runs the migrations. *Return type:* `SqliteConnection`*
+- [x] **`set_cluster_name(path: &PathBuf, name: &str)`**: Sets the cluster name in the `sbatchman.conf` file located at the specified path. *Return type:* `Result<()>`
+- [x] **`get_cluster_name(path: &PathBuf)`**: Retrieves the cluster name from the `sbatchman.conf` file located at the specified path. *Return type:* `Result<String>`
+- [ ] **`import_clusters_configs_from_file(path: &str)`**: Imports cluster configurations from a YAML file into the database. *Return type:* `Result<()>`
 - **`run_jobs_from_file(path: &str)`**: Parses and launches all jobs defined in a job configuration file.
   *Return type:* `Result<()>`
 
@@ -48,17 +53,9 @@ Here’s your markdown table transformed into a clean unordered list:
 - **`import_jobs(path: &str)`**: Imports jobs from a `.zip` archive into the database.
   *Return type:* `Result<()>`
 
-- **`import_cluster_configs_from_file(path: &str)`**: Imports cluster configurations from a YAML file into the database.
   *Return type:* `Result<()>`
 
 - **`get_cluster_config(name: &str)`**: Retrieves a specific cluster configuration by name.
-  *Return type:* `Result<ClusterConfig>`
-
-- **`get_sbatchman_path()`**: Returns the root directory path for `sbatchman` data and databases.
-  *Return type:* `Result<String>`
-
-- **`init_db(path: &str)`**: Initializes the SQLite database at the given path.
-  *Return type:* `Result<()>`
 
 - **`migrate_db(path: &str)`**: Applies necessary schema migrations to the database.
   *Return type:* `Result<()>`

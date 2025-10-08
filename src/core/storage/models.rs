@@ -99,6 +99,11 @@ pub struct NewConfig<'a> {
   pub env: &'a serde_json::Value,
 }
 
+pub struct ConfigWithCluster {
+  pub config: Config,
+  pub cluster: Cluster,
+}
+
 #[derive(Queryable, Selectable, Associations, Debug, PartialEq)]
 #[diesel(belongs_to(Config))]
 #[diesel(table_name = jobs)]

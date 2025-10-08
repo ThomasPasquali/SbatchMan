@@ -14,3 +14,8 @@ dirs = "6.0.0"
 thiserror = "2.0.17"
 log = "0.4.28"
 env_logger = "0.11.8"
+confy = "1.0.0"
+serde = { version = "1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.23.0"
