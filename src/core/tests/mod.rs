@@ -1,21 +1,29 @@
-use crate::core::storage::*;
+use crate::core::{config::tests::init_sbatchman_for_tests, storage::{models::*, *}};
 
 #[test]
-fn sbatchman_init_test() {
-  let temp_dir = tempfile::tempdir().unwrap();
-  let path = temp_dir.path().to_path_buf();
-  assert!(sbatchman_init(&path).is_ok());
-  let config_path = path.join("sbatchman.conf");
-  assert!(config_path.exists());
-}
+fn get_set_config() {
+  let temp_dir = init_sbatchman_for_tests();
+  let mut conn = establish_connection(temp_dir.path().to_path_buf()).unwrap();
 
-#[test]
-fn set_and_get_cluster_name_test() {
-  let temp_dir = tempfile::tempdir().unwrap();
-  let path = temp_dir.path().to_path_buf();
-  assert!(sbatchman_init(&path).is_ok());
-  let cluster_name = "test_cluster";
-  assert!(set_cluster_name(&path, cluster_name).is_ok());
-  let retrieved_name = get_cluster_name(&path).unwrap();
-  assert_eq!(retrieved_name, cluster_name);
+  let new_cluster = NewCluster {
+    cluster_name: "test_cluster",
+    scheduler: Scheduler::Local,
+    max_jobs: Some(10),
+  };
+  let cluster = create_cluster(&mut conn, &new_cluster).unwrap();
+
+  let flags = serde_json::json!({"flag1": "value1", "flag2": "value2"});
+  let env = serde_json::json!({"env1": "value1", "env2": "value2"});
+
+  let new_config = NewConfig {
+    config_name: "test_config",
+    cluster_id: cluster.id,
+    flags: &flags,
+    env: &env,
+  };
+  let _config = create_cluster_config(&mut conn, &new_config).unwrap();
+
+  let (retrieved_config, retrieved_cluster) = get_cluster_config(&mut conn, "test_config").unwrap();
+  assert_eq!(retrieved_config.config_name, "test_config");
+  assert_eq!(retrieved_cluster.cluster_name, "test_cluster");
 }

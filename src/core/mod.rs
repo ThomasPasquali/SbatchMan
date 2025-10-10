@@ -1,5 +1,6 @@
 mod storage;
 mod parsers;
+mod config;
 
 #[cfg(test)]
 mod tests;
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 
 use diesel::SqliteConnection;
 
-use storage::create_cluster_configs;
+use storage::create_cluster_with_configs;
 
 pub struct Sbatchman {
   db: SqliteConnection,
@@ -21,6 +22,8 @@ pub enum SbatchmanError {
   StorageError(#[from] storage::StorageError),
   #[error("Parser Error: {0}")]
   ParserError(#[from] parsers::ParserError),
+  #[error("Config Error: {0}")]
+  ConfigError(#[from] config::ConfigError),
 }
 
 impl Sbatchman {
@@ -33,14 +36,14 @@ impl Sbatchman {
   }
 
   pub fn set_cluster_name(&mut self, name: &str) -> Result<(), SbatchmanError> {
-    storage::set_cluster_name(&self.path, name)?;
+    config::set_cluster_name(&self.path, name)?;
     Ok(())
   }
 
   pub fn import_clusters_configs_from_file(&mut self, path: &str) -> Result<(), SbatchmanError> {
     let mut clusters = parsers::parse_clusters_configs_from_file(path)?;
     for cluster in &mut clusters {
-      create_cluster_configs(&mut self.db, cluster)?;
+      create_cluster_with_configs(&mut self.db, cluster)?;
     }
 
     return Ok(());
