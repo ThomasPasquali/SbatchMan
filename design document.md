@@ -188,32 +188,31 @@ pub struct JobFilter {
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
 ```yaml
-
 # variables.yaml
 
 variables:
   interconnect:
-    # default: ["cpu", "gpu"]
+    default: ["ethernet"]
     per_cluster:
-      clusterA: ["ethernet", "infiniband"]
-      clusterB: ["ethernet"]
+      clusterA: ["ethernet_A", "infiniband_A"]
+      clusterB: ["ethernet_B"]
 
   partition:
     per_cluster:
-      clusterA: ["cpu_A", "gpu_A"],
-      clusterB: ["cpu_B"]
+      clusterA: ["partition_cpu_A", "partition_gpu_A"]
+      clusterB: ["partition_cpu_B"]
 
   qos:
+    default: "normal"
     map:
-      "cpu_A": "normalcpu"
-      "gpu_A": "normalgpu"
-      "gpu_B": "normalgpu"
+      "cpu_A": "normal_A"
+      "gpu_A": "gpu_A"
+      "gpu_B": "gpu_B"
 
   ncpus: [4, 8]
 
   datasets: @dir datasets/ # directory, each file is a value
   scales: @file scales.txt # file, each line is a value
-
 ```
 
 ```yaml

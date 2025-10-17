@@ -11,16 +11,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-  Configure {
-    file: String,
-  },
+  Configure { file: String },
 }
 
 pub fn main() {
   let cli = Cli::parse();
 
   let mut sbatchman = core::Sbatchman::new().expect("Failed to initialize Sbatchman");
-
 
   match &cli.command {
     Some(Commands::Configure { file }) => {

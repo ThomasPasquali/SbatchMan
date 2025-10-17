@@ -3,12 +3,14 @@
 # This is an example of strong scaling experiments.
 # These include different datasets, modes (user defined semantic), implementations (and related args)
 
+include: recursive_vars.yaml
+
 variables:
   # Directory, each file is a value.
-  dataset: @dir datasets/
+  dataset: "@dir datasets/"
 
   # File, each line is a value.
-  mode: @file modes.txt
+  mode: "@file modes.txt"
 
   # Explicit values list. Same as ["impl1", "impl2", "impl3"].
   implementation:

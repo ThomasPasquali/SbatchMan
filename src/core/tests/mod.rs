@@ -1,4 +1,7 @@
-use crate::core::{config::tests::init_sbatchman_for_tests, storage::{models::*, *}};
+use crate::core::{
+  config::tests::init_sbatchman_for_tests,
+  storage::{models::*, *},
+};
 
 #[test]
 fn get_set_config() {

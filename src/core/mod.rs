@@ -1,11 +1,11 @@
-mod storage;
-mod parsers;
 mod config;
+mod parsers;
+mod storage;
 
 #[cfg(test)]
 mod tests;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use diesel::SqliteConnection;
 
@@ -41,13 +41,11 @@ impl Sbatchman {
   }
 
   pub fn import_clusters_configs_from_file(&mut self, path: &str) -> Result<(), SbatchmanError> {
-    let mut clusters = parsers::parse_clusters_configs_from_file(path)?;
+    let mut clusters = parsers::parse_clusters_configs_from_file(&Path::new(path))?;
     for cluster in &mut clusters {
-      create_cluster_with_configs(&mut self.db, cluster)?;
+      // FIXME create_cluster_with_configs(&mut self.db, cluster)?;
     }
 
     return Ok(());
   }
-
-
 }

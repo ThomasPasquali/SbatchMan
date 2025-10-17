@@ -1,0 +1,8 @@
+# Include configurations and jobs common variables
+include: variables.yaml
+
+# This variables block will add new declarations and override one
+variables:
+
+  # Override a variable defined in `variables.yaml`
+  to_override: 'OVERWRITTEN'

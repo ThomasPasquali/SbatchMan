@@ -4,12 +4,12 @@ pub mod schema;
 use diesel::prelude::*;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use log::debug;
-use thiserror::Error;
 use std::{io, path::PathBuf};
+use thiserror::Error;
 
 use super::storage::{
-  models::{Cluster, NewCluster, Config, NewConfig},
-  schema::{clusters},
+  models::{Cluster, Config, NewCluster, NewConfig},
+  schema::clusters,
 };
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
@@ -52,14 +52,20 @@ pub fn get_sbatchman_path() -> Result<PathBuf, StorageError> {
 pub fn establish_connection(mut path: PathBuf) -> Result<SqliteConnection, StorageError> {
   path.push("sbatchman.db");
   let database_url = path.to_str().unwrap();
-  let mut connection = SqliteConnection::establish(&database_url).map_err(StorageError::ConnectionError)?;
-  let _ = connection.run_pending_migrations(MIGRATIONS).map_err(StorageError::MigrationError)?;
+  let mut connection =
+    SqliteConnection::establish(&database_url).map_err(StorageError::ConnectionError)?;
+  let _ = connection
+    .run_pending_migrations(MIGRATIONS)
+    .map_err(StorageError::MigrationError)?;
 
   debug!("Connected to database at {}.", database_url);
   return Ok(connection);
 }
 
-pub fn create_cluster(conn: &mut SqliteConnection, new_cluster: &NewCluster) -> Result<Cluster, StorageError> {
+pub fn create_cluster(
+  conn: &mut SqliteConnection,
+  new_cluster: &NewCluster,
+) -> Result<Cluster, StorageError> {
   let cluster = diesel::insert_into(clusters::table)
     .values(new_cluster)
     .returning(Cluster::as_returning())
@@ -68,7 +74,10 @@ pub fn create_cluster(conn: &mut SqliteConnection, new_cluster: &NewCluster) -> 
   Ok(cluster)
 }
 
-pub fn create_cluster_config(conn: &mut SqliteConnection, new_config: &NewConfig) -> Result<Config, StorageError> {
+pub fn create_cluster_config(
+  conn: &mut SqliteConnection,
+  new_config: &NewConfig,
+) -> Result<Config, StorageError> {
   use self::schema::configs;
 
   let config = diesel::insert_into(configs::table)
@@ -79,7 +88,10 @@ pub fn create_cluster_config(conn: &mut SqliteConnection, new_config: &NewConfig
   Ok(config)
 }
 
-pub fn create_cluster_with_configs(conn: &mut SqliteConnection, cluster_config: &mut super::parsers::NewClusterConfig) -> Result<(), StorageError> {
+pub fn create_cluster_with_configs(
+  conn: &mut SqliteConnection,
+  cluster_config: &mut super::parsers::NewClusterConfig,
+) -> Result<(), StorageError> {
   let cluster = create_cluster(conn, &cluster_config.cluster)?;
 
   cluster_config.configs.iter_mut().for_each(|config| {
@@ -89,14 +101,20 @@ pub fn create_cluster_with_configs(conn: &mut SqliteConnection, cluster_config: 
   Ok(())
 }
 
-pub fn get_cluster_config(conn: &mut SqliteConnection, config_name_: &str) -> Result<(Config, Cluster), StorageError> {
+pub fn get_cluster_config(
+  conn: &mut SqliteConnection,
+  config_name_: &str,
+) -> Result<(Config, Cluster), StorageError> {
   use self::schema::configs::dsl::*;
   let mut config_with_cluster = configs
     .filter(config_name.eq(config_name_))
     .inner_join(clusters::table)
     .select((Config::as_select(), Cluster::as_select()))
-
     .load::<(Config, Cluster)>(conn)
     .map_err(|e| StorageError::OperationError(e.to_string()))?;
-  return Ok(config_with_cluster.pop().ok_or(StorageError::OperationError("Config not found".into()))?);
+  return Ok(
+    config_with_cluster
+      .pop()
+      .ok_or(StorageError::OperationError("Config not found".into()))?,
+  );
 }
