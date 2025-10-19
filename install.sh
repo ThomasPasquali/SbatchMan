@@ -76,7 +76,4 @@ if ! command -v sbatchman >/dev/null; then
   exit 1
 fi
 
-echo "Running sbatchman init..."
-sbatchman init
-
-echo "✅ sbatchman installed and verified successfully!"
+echo "✅ sbatchman installed successfully!"

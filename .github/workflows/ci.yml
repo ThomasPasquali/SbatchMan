@@ -1,10 +1,6 @@
 name: Rust CI
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+on: workflow_dispatch
 
 jobs:
   build-test-lint:
@@ -32,14 +28,13 @@ jobs:
       # ---- Format check ----
       - name: Check formatting
         run: cargo fmt --all -- --check
-        continue-on-error: true
 
       # ---- Lint with Clippy ----
       - name: Run Clippy linter
+        if: success() || failure()
         run: cargo clippy --all-targets --all-features -- -D warnings
-        continue-on-error: true
 
       # ---- Run tests ----
       - name: Run tests
+        if: success() || failure()
         run: cargo test --all --verbose
-        continue-on-error: true
