@@ -28,6 +28,8 @@ pub enum StorageError {
   OperationError(String),
 }
 
+/// Searches for the .sbatchman directory starting from the current working directory
+/// and moving up the directory tree until it finds it or reaches the user's home directory.
 pub fn get_sbatchman_path() -> Result<PathBuf, StorageError> {
   let home = dirs::home_dir().unwrap_or(PathBuf::from("/"));
   let start = std::env::current_dir().map_err(StorageError::CurrentDir)?;
@@ -38,9 +40,11 @@ pub fn get_sbatchman_path() -> Result<PathBuf, StorageError> {
     if candidate.is_dir() {
       return Ok(candidate);
     }
+    // Stop if we reach the home directory
     if dir == home {
       break;
     }
+    // Stop if we reach the root directory
     if !dir.pop() {
       break;
     }

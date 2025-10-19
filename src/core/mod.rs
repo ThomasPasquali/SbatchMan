@@ -35,6 +35,11 @@ impl Sbatchman {
     Ok(Sbatchman { db, path })
   }
 
+  pub fn init(path: &PathBuf) -> Result<(), SbatchmanError> {
+    config::init_sbatchman_dir(path)?;
+    Ok(())
+  }
+
   pub fn set_cluster_name(&mut self, name: &str) -> Result<(), SbatchmanError> {
     config::set_cluster_name(&self.path, name)?;
     Ok(())

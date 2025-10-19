@@ -24,7 +24,7 @@ impl ::std::default::Default for SbatchmanConfig {
   }
 }
 
-pub fn sbatchman_init(path: &PathBuf) -> Result<(), ConfigError> {
+pub fn init_sbatchman_dir(path: &PathBuf) -> Result<(), ConfigError> {
   let config: SbatchmanConfig = SbatchmanConfig::default();
   confy::store_path(path.join("sbatchman.conf"), config)
     .map_err(|e| ConfigError::ConfigError(e.to_string()))?;

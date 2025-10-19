@@ -30,3 +30,18 @@ fn get_set_config() {
   assert_eq!(retrieved_config.config_name, "test_config");
   assert_eq!(retrieved_cluster.cluster_name, "test_cluster");
 }
+
+#[test]
+fn create_cluster_same_name() {
+  let temp_dir = init_sbatchman_for_tests();
+  let mut conn = establish_connection(temp_dir.path().to_path_buf()).unwrap();
+
+  let new_cluster = NewCluster {
+    cluster_name: "duplicate_cluster",
+    scheduler: Scheduler::Local,
+    max_jobs: Some(10),
+  };
+  let _cluster1 = create_cluster(&mut conn, &new_cluster).unwrap();
+  let result = create_cluster(&mut conn, &new_cluster);
+  assert!(result.is_err());
+}
