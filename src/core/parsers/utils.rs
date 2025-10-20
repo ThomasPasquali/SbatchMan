@@ -61,22 +61,6 @@ pub fn yaml_mapping_merge<'a, 'b, 'c>(original: &'a Yaml<'a>, new: &'b Yaml<'b>)
   unsafe { std::mem::transmute(result) }
 }
 
-/// Merge two Yaml mapping nodes (a and b). Values from b override values from a.
-/// This utility assumes both are mapping nodes.
-// pub fn merge_yaml_maps(a: &mut Yaml, b: &mut Yaml) {
-//     if let Yaml::Mapping(b_map) = b {
-//         if let Yaml::Mapping(a_map) = a {
-//             for (bk, bv_val) in b_map.iter() {
-//                 a_map.insert(bk.clone(), bv_val.clone());
-//             }
-//         } else {
-//             *a = b.clone();
-//         }
-//     } else {
-//         return;
-//     }
-// }
-
 pub fn yaml_has_key(node: &Yaml, key: &str) -> bool {
   yaml_lookup(node, key).is_some()
 }
