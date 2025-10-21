@@ -7,4 +7,4 @@ custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 patch_file = "src/core/database/schema.patch"
 # Generate the patch file by running: diff -U0 src/core/database/schema_1.rs src/core/database/schema.rs > src/core/database/schema.patch
 [migrations_directory]
-dir = "/Users/salvatore/Desktop/SbatchMan/migrations"
+dir = "migrations"

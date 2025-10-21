@@ -1,56 +1,70 @@
-mod config;
+mod sbatchman_config;
 mod parsers;
-mod storage;
+mod database;
+mod jobs;
 
 #[cfg(test)]
 mod tests;
 
 use std::path::{Path, PathBuf};
 
-use diesel::SqliteConnection;
-
-use storage::create_cluster_with_configs;
+use crate::core::database::Database;
 
 pub struct Sbatchman {
-  db: SqliteConnection,
+  db: Database,
   path: PathBuf,
+  config: sbatchman_config::SbatchmanConfig,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum SbatchmanError {
   #[error("Storage Error: {0}")]
-  StorageError(#[from] storage::StorageError),
+  StorageError(#[from] database::StorageError),
   #[error("Parser Error: {0}")]
   ParserError(#[from] parsers::ParserError),
   #[error("Config Error: {0}")]
-  ConfigError(#[from] config::ConfigError),
+  ConfigError(#[from] sbatchman_config::SbatchmanConfigError),
+  #[error("No cluster set. Please set a cluster before launching jobs using `set-cluster` command.")]
+  NoClusterSet,
+  #[error("Job Error: {0}")]
+  JobError(#[from] jobs::JobError),
 }
 
 impl Sbatchman {
   pub fn new() -> Result<Self, SbatchmanError> {
     let _ = env_logger::try_init();
 
-    let path = storage::get_sbatchman_path()?;
-    let db = storage::establish_connection(path.clone())?;
-    Ok(Sbatchman { db, path })
+    let path = sbatchman_config::get_sbatchman_dir()?;
+    let db = Database::new(&path)?;
+    let config = sbatchman_config::get_sbatchman_config(&path)?;
+    Ok(Sbatchman { db, path, config })
   }
 
   pub fn init(path: &PathBuf) -> Result<(), SbatchmanError> {
-    config::init_sbatchman_dir(path)?;
+    sbatchman_config::init_sbatchman_dir(path)?;
     Ok(())
   }
 
   pub fn set_cluster_name(&mut self, name: &str) -> Result<(), SbatchmanError> {
-    config::set_cluster_name(&self.path, name)?;
+    self.config.cluster_name = Some(name.to_string());
+    sbatchman_config::set_sbatchman_config(&self.path, &mut self.config)?;
     Ok(())
   }
 
   pub fn import_clusters_configs_from_file(&mut self, path: &str) -> Result<(), SbatchmanError> {
-    let mut clusters = parsers::parse_clusters_configs_from_file(&Path::new(path))?;
-    for cluster in &mut clusters {
-      // FIXME create_cluster_with_configs(&mut self.db, cluster)?;
+    let mut clusters_configs = parsers::parse_clusters_configs_from_file(&Path::new(path))?;
+    for cluster_config in &mut clusters_configs {
+      self.db.create_cluster_with_configs(cluster_config)?;
     }
 
     return Ok(());
+  }
+
+  pub fn launch_jobs_from_file(&mut self, path: &str, cluster_name: &Option<String>) -> Result<(), SbatchmanError> {
+    let cluster_name = match &cluster_name {
+      Some(name) => name,
+      None => self.config.cluster_name.as_ref().ok_or(SbatchmanError::NoClusterSet)?
+    };
+    Ok(jobs::launch_jobs_from_file(&PathBuf::from(path), &mut self.db, cluster_name)?)
   }
 }

@@ -1,12 +1,12 @@
 use crate::core::{
-  config::tests::init_sbatchman_for_tests,
-  storage::{models::*, *},
+  sbatchman_config::tests::init_sbatchman_for_tests,
+  database::{models::*, *},
 };
 
 #[test]
 fn get_set_config() {
   let temp_dir = init_sbatchman_for_tests();
-  let mut conn = establish_connection(temp_dir.path().to_path_buf()).unwrap();
+  let mut conn = establish_connection(&temp_dir.path().to_path_buf()).unwrap();
 
   let new_cluster = NewCluster {
     cluster_name: "test_cluster",
@@ -24,17 +24,15 @@ fn get_set_config() {
     flags: &flags,
     env: &env,
   };
-  let _config = create_cluster_config(&mut conn, &new_config).unwrap();
-
-  let (retrieved_config, retrieved_cluster) = get_cluster_config(&mut conn, "test_config").unwrap();
-  assert_eq!(retrieved_config.config_name, "test_config");
-  assert_eq!(retrieved_cluster.cluster_name, "test_cluster");
+  create_cluster_config(&mut conn, &new_config).unwrap();
+  let configs = get_cluster_configs(&mut conn, "test_cluster").unwrap();
+  assert!(configs.contains_key("test_config"));
 }
 
 #[test]
 fn create_cluster_same_name() {
   let temp_dir = init_sbatchman_for_tests();
-  let mut conn = establish_connection(temp_dir.path().to_path_buf()).unwrap();
+  let mut conn = establish_connection(&temp_dir.path().to_path_buf()).unwrap();
 
   let new_cluster = NewCluster {
     cluster_name: "duplicate_cluster",

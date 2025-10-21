@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use super::schema::{clusters, configs, jobs};
 use diesel::{
   backend::Backend,
@@ -12,12 +10,12 @@ use diesel::{
 use strum::EnumString;
 
 #[repr(i32)]
-#[derive(FromSqlRow, Debug, AsExpression, EnumString)]
+#[derive(FromSqlRow, Debug, AsExpression, EnumString, PartialEq, Clone)]
 #[diesel(sql_type = Integer)]
 pub enum Scheduler {
-  Local = 0,
-  Slurm = 1,
-  PBS = 2,
+  Local,
+  Slurm,
+  Pbs,
 }
 
 impl<DB> FromSql<Integer, DB> for Scheduler
@@ -29,7 +27,7 @@ where
     match i32::from_sql(bytes)? {
       0 => Ok(Scheduler::Local),
       1 => Ok(Scheduler::Slurm),
-      2 => Ok(Scheduler::PBS),
+      2 => Ok(Scheduler::Pbs),
       x => Err(format!("Unrecognized variant {}", x).into()),
     }
   }
@@ -44,23 +42,12 @@ where
     match self {
       Scheduler::Local => 0.to_sql(out),
       Scheduler::Slurm => 1.to_sql(out),
-      Scheduler::PBS => 2.to_sql(out),
+      Scheduler::Pbs => 2.to_sql(out),
     }
   }
 }
 
-impl Display for Scheduler {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let s = match self {
-      Scheduler::Local => "Local",
-      Scheduler::Slurm => "Slurm",
-      Scheduler::PBS => "PBS",
-    };
-    write!(f, "{}", s)
-  }
-}
-
-#[derive(Queryable, Selectable)]
+#[derive(Queryable, Selectable, Identifiable)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(table_name = clusters)]
 pub struct Cluster {
@@ -79,7 +66,7 @@ pub struct NewCluster<'a> {
   pub max_jobs: Option<i32>,
 }
 
-#[derive(Queryable, Selectable, Associations, Debug, PartialEq)]
+#[derive(Queryable, Selectable, Associations, Debug, PartialEq, Identifiable)]
 #[diesel(belongs_to(Cluster))]
 #[diesel(table_name = configs)]
 pub struct Config {
@@ -99,22 +86,70 @@ pub struct NewConfig<'a> {
   pub env: &'a serde_json::Value,
 }
 
-pub struct ConfigWithCluster {
-  pub config: Config,
-  pub cluster: Cluster,
+pub struct NewClusterConfig<'a> {
+  pub cluster: NewCluster<'a>,
+  pub configs: Vec<NewConfig<'a>>,
+}
+
+#[repr(i32)]
+#[derive(FromSqlRow, Debug, AsExpression, EnumString, PartialEq)]
+#[diesel(sql_type = Integer)]
+pub enum Status {
+  Created,      // Job created but not yet submitted
+  VirtualQueue, // Job in virtual queue waiting for submission
+  Queued,       // Job submitted and waiting in scheduler queue
+  Running,      // Job is currently running
+  Completed,    // Job completed successfully
+  Failed,       // Job failed
+}
+
+impl<DB> FromSql<Integer, DB> for Status
+where
+  DB: Backend,
+  i32: FromSql<Integer, DB>,
+{
+  fn from_sql(bytes: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
+    match i32::from_sql(bytes)? {
+      0 => Ok(Status::Created),
+      1 => Ok(Status::VirtualQueue),
+      2 => Ok(Status::Queued),
+      3 => Ok(Status::Running),
+      4 => Ok(Status::Completed),
+      5 => Ok(Status::Failed),
+      x => Err(format!("Unrecognized variant {}", x).into()),
+    }
+  }
+}
+
+impl<DB> ToSql<Integer, DB> for Status
+where
+  DB: Backend,
+  i32: ToSql<Integer, DB>,
+{
+  fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> diesel::serialize::Result {
+    match self {
+      Status::Created => 0.to_sql(out),
+      Status::VirtualQueue => 1.to_sql(out),
+      Status::Queued => 2.to_sql(out),
+      Status::Running => 3.to_sql(out),
+      Status::Completed => 4.to_sql(out),
+      Status::Failed => 5.to_sql(out),
+    }
+  }
 }
 
 #[derive(Queryable, Selectable, Associations, Debug, PartialEq)]
 #[diesel(belongs_to(Config))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(table_name = jobs)]
 pub struct Job {
   pub id: i32,
   pub job_name: String,
   pub config_id: i32,
-  pub submit_time: i32,
+  pub submit_time: Option<i32>,
   pub directory: String,
   pub command: String,
-  pub status: String,
+  pub status: Status,
   pub job_id: Option<String>,
   pub end_time: Option<i32>,
   pub preprocess: Option<String>,
@@ -128,14 +163,10 @@ pub struct Job {
 pub struct NewJob<'a> {
   pub job_name: &'a str,
   pub config_id: i32,
-  pub submit_time: i32,
   pub directory: &'a str,
   pub command: &'a str,
-  pub status: &'a str,
-  pub job_id: Option<&'a str>,
-  pub end_time: Option<i32>,
+  pub status: &'a Status,
   pub preprocess: Option<&'a str>,
   pub postprocess: Option<&'a str>,
-  pub archived: Option<i32>,
   pub variables: &'a serde_json::Value,
 }

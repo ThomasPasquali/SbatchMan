@@ -1,25 +1,23 @@
 mod utils;
+mod jobs;
+mod variables;
 
 #[cfg(test)]
 mod tests;
 
 use log::{debug, warn};
-use saphyr::{LoadableYamlNode, Yaml};
-use std::borrow::Cow;
-use std::cell::{RefCell, RefMut};
+use saphyr::Yaml;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::Arc;
 use thiserror::Error;
 
 use crate::core::parsers::utils::{
-  check_and_get_yaml_first_document, load_yaml_from_file, yaml_has_key, yaml_lookup,
-  yaml_lookup_mut, yaml_mapping_merge,
+  check_and_get_yaml_first_document, load_yaml_from_file, parse_sequence, parse_str, yaml_has_key, yaml_lookup, yaml_lookup_mut, yaml_mapping_merge
 };
-use crate::core::storage::models::{NewCluster, NewConfig};
+use crate::core::database::models::{NewCluster, NewClusterConfig, NewConfig, Scheduler};
+pub use jobs::{parse_jobs_from_file, ParsedJob};
 
 #[derive(Error, Debug)]
 pub enum ParserError {
@@ -29,11 +27,10 @@ pub enum ParserError {
   YamlParseError(String),
   #[error("Eval Error: {0}")]
   EvalError(String),
-}
-
-pub struct NewClusterConfig<'a> {
-  pub cluster: NewCluster<'a>,
-  pub configs: Vec<NewConfig<'a>>,
+  #[error("Missing Key: {0}")]
+  MissingKey(String),
+  #[error("Wrong type for key: {0}, expected {1}")]
+  WrongType(String, String),
 }
 
 /// Intermediate representation of a parsed configuration (before mapping to DB models)
@@ -44,79 +41,63 @@ pub struct ParsedConfig {
   pub extra_headers: Vec<String>,
 }
 
-/// Intermediate representation of a parsed cluster
-#[derive(Debug, Clone)]
-pub struct ParsedCluster {
-  pub name: String,
-  pub scheduler: Option<String>,
-  pub default_params: serde_json::Value,
-  pub configs: Vec<ParsedConfig>,
-}
-
 fn load_and_merge_includes<'a>(
-  mut base: Box<Yaml<'a>>,
+  mut base: Yaml<'a>,
   base_dir: &Path,
-) -> Result<Box<Yaml<'a>>, ParserError> {
+) -> Result<Yaml<'a>, ParserError> {
   if !base.is_mapping() {
     return Ok(base);
   }
 
-  if let Some(include_node) = yaml_lookup(&base, "include") {
-    let mut include_files: Vec<String> = Vec::new();
-    if include_node.is_string() {
-      include_files.push(include_node.as_str().unwrap().to_string());
-    } else if let Yaml::Sequence(seq) = &include_node {
-      for it in seq.iter() {
-        if let Some(s) = it.as_str() {
-          include_files.push(s.to_string());
-        }
+  let mut include_files: Vec<String> = Vec::new();
+  if let Ok(include_file) = parse_str(&base, "include") {
+    include_files.push(include_file);
+  } else if let Ok(include_sequence) = parse_sequence(&base, "include") {
+    for it in include_sequence.iter() {
+      if let Some(s) = it.as_str() {
+        include_files.push(s.to_string());
       }
     }
-    debug!("Files to be included: {:?}", &include_files);
+  }
+  debug!("Files to be included: {:?}", &include_files);
 
-    for inc_file_path in include_files {
-      let inc_path = base_dir.join(&inc_file_path);
-      debug!("Parsing included file: {}", inc_path.to_str().unwrap());
-      let include_yaml = Box::new(load_yaml_from_file(&inc_path)?);
-      let inc_base_dir = inc_path
-        .parent()
-        .map(|p| p.to_owned())
-        .unwrap_or_else(|| PathBuf::from("."));
-      // FIXME let include_yaml = load_and_merge_includes(include_yaml, &inc_base_dir)?;
+  for file in include_files {
+    let inc_path = base_dir.join(&file);
+    debug!("Parsing included file: {}", inc_path.to_str().unwrap());
+    let include_yaml = load_yaml_from_file(&inc_path)?;
 
-      if let Some(inc_vars) = yaml_lookup(&*include_yaml, "variables") {
-        if let Some(base_vars) = yaml_lookup(&*base, "variables") {
-          // Create a new merged Yaml with lifetime 'a
-          let merged: Yaml<'a> = yaml_mapping_merge(base_vars, inc_vars);
-          debug!("Var base: {:?}", base_vars);
-          debug!("Var incl: {:?}", inc_vars);
-          debug!("Var merg: {:?}", merged);
+    if let Some(inc_vars) = yaml_lookup(&include_yaml, "variables") {
+      if let Some(base_vars) = yaml_lookup(&base, "variables") {
+        // Create a new merged Yaml with lifetime 'a
+        let merged: Yaml<'a> = yaml_mapping_merge(base_vars, inc_vars);
+        debug!("Var base: {:?}", base_vars);
+        debug!("Var incl: {:?}", inc_vars);
+        debug!("Var merg: {:?}", merged);
 
-          // Now update base with the merged result
-          if let Some(base_vars_mut) = yaml_lookup_mut(&mut base, "variables") {
-            *base_vars_mut = merged;
-          } else {
-            base
-              .as_mapping_mut()
-              .unwrap()
-              .insert(Yaml::scalar_from_string("variables".to_string()), merged);
-          }
-
+        // Now update base with the merged result
+        if let Some(base_vars_mut) = yaml_lookup_mut(&mut base, "variables") {
+          *base_vars_mut = merged;
+        } else {
+          base
+            .as_mapping_mut()
+            .unwrap()
+            .insert(Yaml::scalar_from_string("variables".to_string()), merged);
         }
-      }
 
-      // Warn for unused keys
-      if let Yaml::Mapping(include_yaml_map) = &*include_yaml {
-        for (k_node, _) in include_yaml_map.iter() {
-          if let Some(key) = k_node.as_str() {
-            if key != "variables" && key != "include" {
-              warn!("The `include` keyword imports only `variables` blocks. Ignored key '{}'", key)
-            }
+      }
+    }
+
+    // Warn for unused keys
+    if let Yaml::Mapping(include_yaml_map) = &include_yaml {
+      for (k_node, _) in include_yaml_map.iter() {
+        if let Some(key) = k_node.as_str() {
+          if key != "variables" && key != "include" {
+            warn!("The `include` keyword imports only `variables` blocks. Ignored key '{}'", key)
           }
         }
       }
-
     }
+
   }
 
   base.as_mapping_mut().unwrap().remove(&Yaml::value_from_str("include"));
@@ -511,7 +492,7 @@ fn eval_expr(
 }
 
 /// Public parser entry. Returns intermediate ParsedCluster objects.
-pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<ParsedCluster>, ParserError> {
+pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig>, ParserError> {
   let yaml = Box::new(load_yaml_from_file(root)?);
   let base_dir = root
     .parent()
@@ -571,9 +552,20 @@ pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<ParsedCluster
 
       // scheduler
       let scheduler = yaml_lookup(cluster_val_node, "scheduler")
-        .and_then(|n| Some(String::from_str(n.as_str()?)))
-        .map(|s| s.unwrap().to_string());
-
+        .and_then(|n| n.as_str())
+        .and_then(|s| Scheduler::from_str(s).ok())
+        .ok_or_else(|| {
+          ParserError::YamlParseError(format!(
+            "Cluster '{}' has invalid or missing scheduler",
+            cluster_name
+          ))
+        })?;
+      
+      // max_jobs
+      let max_jobs = yaml_lookup(cluster_val_node, "max_jobs")
+          .and_then(|n| n.as_integer())
+          .map(|i| i as i32);
+      
       // configs
       let mut parsed_configs = Vec::new();
 
@@ -611,19 +603,22 @@ pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<ParsedCluster
               }
             }
 
-            parsed_configs.push(ParsedConfig {
-              name_template: name_templ,
-              params: cfg_params,
-              extra_headers,
+            parsed_configs.push(NewConfig {
+              config_name: &name_templ,
+              flags: None,
+              env: None,
+              // FIXME
             });
           }
         }
       }
 
-      parsed_clusters.push(ParsedCluster {
-        name: cluster_name,
-        scheduler,
-        default_params: cluster_default_params,
+      parsed_clusters.push(NewClusterConfig {
+        cluster: NewCluster {
+          cluster_name: &cluster_name,
+          scheduler,
+          max_jobs,
+        },
         configs: parsed_configs,
       });
     }

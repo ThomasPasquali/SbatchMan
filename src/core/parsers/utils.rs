@@ -24,16 +24,19 @@ pub fn check_and_get_yaml_first_document(yaml: Vec<Yaml>) -> Result<Yaml, Parser
   Ok(yaml.into_iter().next().unwrap())
 }
 
-pub fn yaml_lookup<'a, 'b>(node: &'b Yaml<'a>, key: &str) -> Option<&'b Yaml<'a>> {
+pub fn yaml_lookup<'a, 'b>(node: &'b Yaml<'a>, key: &'b str) -> Option<&'b Yaml<'a>> {
   if let Yaml::Mapping(map) = node {
-    return map.get(&Yaml::scalar_from_string(key.to_string()));
+    return map.get(&Yaml::value_from_str(key));
   }
   None
 }
 
-pub fn yaml_lookup_mut<'a, 'b>(node: &'b mut Yaml<'a>, key: &str) -> Option<&'b mut Yaml<'a>> {
+pub fn yaml_lookup_mut<'a, 'b: 'a>(
+  node: &'b mut Yaml<'a>,
+  key: &'b str,
+) -> Option<&'b mut Yaml<'a>> {
   if let Yaml::Mapping(map) = node {
-    return map.get_mut(&Yaml::scalar_from_string(key.to_string()));
+    return map.get_mut(&Yaml::value_from_str(key));
   }
   None
 }
@@ -63,4 +66,24 @@ pub fn yaml_mapping_merge<'a, 'b, 'c>(original: &'a Yaml<'a>, new: &'b Yaml<'b>)
 
 pub fn yaml_has_key(node: &Yaml, key: &str) -> bool {
   yaml_lookup(node, key).is_some()
+}
+
+pub fn parse_str(yaml: &Yaml, str: &str) -> Result<String, ParserError> {
+  match yaml_lookup(yaml, str) {
+    Some(y) => match y.as_str() {
+      Some(s) => Ok(s.to_string()),
+      None => Err(ParserError::WrongType(str.to_string(), "string".to_string())),
+    },
+    None => Err(ParserError::MissingKey(str.to_string())),
+  }
+}
+
+pub fn parse_sequence<'a>(yaml: &Yaml<'a>, key: &str) -> Result<Vec<Yaml<'a>>, ParserError> {
+  match yaml_lookup(yaml, key) {
+    Some(y) => match y {
+      Yaml::Sequence(seq) => Ok(seq.clone()),
+      _ => Err(ParserError::WrongType(key.to_string(), "sequence".to_string())),
+    },
+    None => Err(ParserError::MissingKey(key.to_string())),
+  }
 }

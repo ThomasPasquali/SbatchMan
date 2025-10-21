@@ -60,6 +60,10 @@ Here’s your markdown table transformed into a clean unordered list:
 - **`migrate_db(path: &str)`**: Applies necessary schema migrations to the database.
   *Return type:* `Result<()>`
 
+### Generated script
+A generated bash script is created for each job to handle preprocessing, job submission, and postprocessing. This script is stored in the job's directory and executed when the job is run. The script should try to update the job status in the database directly using specific `sbatchman` commands.
+
+Output status updates should also be written to a designated log file that `sbatchman` monitors to track job progress.
 
 ### TUI Frontend
 
@@ -85,7 +89,26 @@ A Python library will be provided to access the core `sbatchman` functionality.
 
 ## Storage and Data Model
 
-`sbatchman` uses a local SQLite database to persist all state.
+`sbatchman` uses a local SQLite database to persist all state. Inside the directory of each job there is a `metadata.txt` file containing job-specific metadata, which mirrors the database entry. The purpose of this file is to recover the state in case the database is corrupted or lost.
+
+### Directory Structure
+The primary directory structure for `sbatchman` is as follows:
+
+```
+.sbatchman/
+├── sbatchman.conf          # Configuration file storing global settings
+├── sbatchman.db            # SQLite database file
+├── jobs/                   # Directory containing job output directories
+│   ├── <job_id_1>/         # Output directory for job with ID <job_id_1> (ID assigned by the database)
+│   │   ├── metadata.txt    # Metadata
+│   │   ├── run.sh          # Generated job script
+│   │   ├── stdout.log      # Standard output log
+│   │   ├── stderr.log      # Standard error log
+│   │   ├── results/        # Directory containing job results
+│   ├── <job_id_2>/         # Output directory for job with ID <job_id_2> (ID assigned by the database)
+│   └── ...
+└──
+```
 
 ### Database Schema
 
@@ -95,7 +118,7 @@ Stores information about available compute clusters.
 
   * `id` (INTEGER, Primary Key)
   * `cluster_name` (TEXT)
-  * `scheduler` (TEXT, e.g., "slurm", "pbs")
+  * `scheduler` (INTEGER, Enum: "slurm", "pbs", "local")
   * `max_jobs` (INTEGER)
 
 #### **Table: `Config`**
@@ -118,7 +141,7 @@ Stores detailed information for every job generated and submitted.
   * `submit_time` (DATETIME)
   * `directory` (TEXT)
   * `command` (TEXT)
-  * `status` (TEXT, Enum: `virtualqueue`, `queued`, `running`, `completed`, `failed`)
+  * `status` (INTEGER, Enum: `virtualqueue`, `queued`, `running`, `completed`, `failed`)
   * `job_id` (INTEGER)
   * `start_time` (DATETIME)
   * `end_time` (DATETIME)
@@ -170,6 +193,9 @@ pub struct JobFilter {
   * **Includes:** Configuration files can be composed together using the `include: <path>` directive.
   * **Variable Types:**
     * **string:** A standard string value.
+    * **int:** An integer value.
+    * **float:** A floating-point value.
+    * **bool:** A boolean value.
     * **array:** A list of values, used for generating combinatorial job variants.
     * **map:** A key-value dictionary.
     * **per_cluster:** A special mapping that allows different values for different clusters.
