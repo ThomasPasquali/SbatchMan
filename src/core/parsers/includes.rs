@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use log::debug;
-use crate::core::parsers::utils::{load_yaml_from_file, lookup_sequence, lookup_str, yaml_lookup};
+use crate::core::parsers::utils::{load_yaml_from_file, yaml_lookup};
 use crate::core::parsers::variables::{parse_variables, Variable};
 use crate::core::parsers::ParserError;
 
@@ -48,9 +48,9 @@ pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable
 
     let yaml = load_yaml_from_file(&current_path)?;
   
-    // Single include
     if let Some(node) = yaml_lookup(&yaml, "include") {
       if let Some(file) = node.as_str() {
+        // Single include
         push_file_to_include_list(&file, &current_path, &mut included_files, &mut to_include)?;
       } else if let Some(include_sequence) = node.as_sequence() {
         // Multiple includes. Last in list should be processed first, so that variables included from earlier files or deeper in the tree don't override earlier ones. Therefore we push to the stack from first to last.
@@ -70,6 +70,7 @@ pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable
     // After handling includes, parse variables from the current file
     if let Some(yaml_variables) = yaml_lookup(&yaml, "variables") {
       let new_variables = parse_variables(&yaml_variables)?;
+      // Merge new variables, without overriding existing ones
       for (k, v) in new_variables {
         variables.entry(k).or_insert(v);
       }

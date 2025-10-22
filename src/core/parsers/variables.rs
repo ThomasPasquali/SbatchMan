@@ -47,14 +47,14 @@ impl PartialEq for Variable {
   }
 }
 
-// Helper macro to create WrongType ParserError
+/// Helper macro to create WrongType ParserError
 macro_rules! wrong_type_err {
   ($value:expr, $expected:expr) => {
     ParserError::WrongType(format!("{:?}", $value), $expected.to_string())
   };
 }
 
-// Parse a scalar YAML node into Scalar enum. Includes special handling for @file and @dir prefixes.
+/// Parse a scalar YAML node into Scalar enum. Includes special handling for @file and @dir prefixes.
 fn parse_scalar<'a>(s: &'a YamlOwnedScalar) -> Result<Scalar, ParserError> {
   match s {
     YamlOwnedScalar::String(s) => {
@@ -75,7 +75,7 @@ fn parse_scalar<'a>(s: &'a YamlOwnedScalar) -> Result<Scalar, ParserError> {
   }
 }
 
-// Parse a sequence of scalars into Vec<Scalar>
+/// Parse a sequence of scalars into Vec<Scalar>
 fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, ParserError> {
   let mut scalars: Vec<Scalar> = Vec::new();
   for item in seq.iter() {
@@ -91,7 +91,7 @@ fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, Parser
   Ok(scalars)
 }
 
-// Parse a mapping into HashMap<String, BasicVar>
+/// Parse a mapping into HashMap<String, BasicVar>
 fn parse_mapping(
   map: &LinkedHashMap<YamlOwned, YamlOwned>,
 ) -> Result<HashMap<String, BasicVar>, ParserError> {
@@ -112,7 +112,7 @@ fn parse_mapping(
   Ok(result)
 }
 
-// Parse only basic variable (scalar or list). Return error if anything else.
+/// Parse only basic variable (scalar or list). Return error if anything else.
 fn parse_basic_var(yaml: &YamlOwned) -> Result<BasicVar, ParserError> {
   match yaml {
     YamlOwned::Value(s) => Ok(BasicVar::Scalar(parse_scalar(s)?)),
@@ -123,14 +123,14 @@ fn parse_basic_var(yaml: &YamlOwned) -> Result<BasicVar, ParserError> {
   }
 }
 
-// Convert &str into Yaml using Yaml::value_from_str
+/// Convert &str into Yaml using Yaml::value_from_str
 macro_rules! yaml_str {
   ($s:expr) => {
     value_from_str($s)
   };
 }
 
-// Main function to parse variables from a YAML node
+/// Main function to parse variables from a YAML node
 pub fn parse_variables(
   yaml: &YamlOwned,
 ) -> Result<HashMap<String, Variable>, ParserError> {
