@@ -1,49 +1,21 @@
-use hashlink::LinkedHashMap;
-use saphyr::Yaml;
+use std::{fs, path::Path};
+
+use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
 use crate::core::parsers::ParserError;
 
-pub fn yaml_lookup<'a, 'b>(node: &'b Yaml<'a>, key: &'b str) -> Option<&'b Yaml<'a>> {
-  if let Yaml::Mapping(map) = node {
-    return map.get(&Yaml::value_from_str(key));
+pub fn value_from_str(s: &str) -> YamlOwned {
+  YamlOwned::Value(ScalarOwned::String(s.to_string()))
+}
+
+pub fn yaml_lookup<'a>(node: &'a YamlOwned, key: &str) -> Option<&'a YamlOwned> {
+  if let YamlOwned::Mapping(map) = node {
+    return map.get(&value_from_str(key));
   }
   None
 }
 
-pub fn yaml_lookup_mut<'a, 'b: 'a>(
-  node: &'b mut Yaml<'a>,
-  key: &'b str,
-) -> Option<&'b mut Yaml<'a>> {
-  if let Yaml::Mapping(map) = node {
-    return map.get_mut(&Yaml::value_from_str(key));
-  }
-  None
-}
-
-pub fn yaml_mapping_merge<'a, 'b, 'c>(original: &'a Yaml<'a>, new: &'b Yaml<'b>) -> Yaml<'c> {
-  // Start with a clone of the original
-  let mut result = original.clone();
-
-  // Ensure result is a mapping
-  if !result.is_mapping() {
-    result = Yaml::Mapping(LinkedHashMap::new());
-  }
-
-  if let Yaml::Mapping(map_result) = &mut result {
-    if let Yaml::Mapping(map_new) = new {
-      for (nk, nv) in map_new.iter() {
-        if nk.is_string() {
-          map_result.insert(Yaml::value_from_str(nk.as_str().unwrap()), nv.clone());
-        }
-      }
-    }
-  }
-
-  // Transmute to the output lifetime
-  unsafe { std::mem::transmute(result) }
-}
-
-pub fn lookup_str(yaml: &Yaml, key: &str) -> Result<String, ParserError> {
+pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
   match yaml_lookup(yaml, key) {
     Some(y) => match y.as_str() {
       Some(s) => Ok(s.to_string()),
@@ -53,12 +25,23 @@ pub fn lookup_str(yaml: &Yaml, key: &str) -> Result<String, ParserError> {
   }
 }
 
-pub fn lookup_sequence<'a>(yaml: &Yaml<'a>, key: &str) -> Result<Vec<Yaml<'a>>, ParserError> {
+pub fn lookup_sequence<'a>(yaml: &'a YamlOwned, key: &str) -> Result<&'a Vec<YamlOwned>, ParserError> {
   match yaml_lookup(yaml, key) {
     Some(yaml) => match yaml {
-      Yaml::Sequence(seq) => Ok(seq.clone()),
+      YamlOwned::Sequence(seq) => Ok(seq),
       _ => Err(ParserError::WrongType(format!("{:?}", yaml), "sequence".to_string())),
     },
     None => Err(ParserError::MissingKey(key.to_string())),
   }
+}
+
+/// Load YAML from a file. Returns the first document in the file.
+pub fn load_yaml_from_file(path: &Path) -> Result<YamlOwned, ParserError> {
+  let text = fs::read_to_string(path)?;
+  let yaml = YamlOwned::load_from_str(&text)
+    .map_err(ParserError::YamlParseFailed)?
+    .into_iter() // Take the first document
+    .next()
+    .ok_or(ParserError::YamlEmpty)?;
+  Ok(yaml)
 }

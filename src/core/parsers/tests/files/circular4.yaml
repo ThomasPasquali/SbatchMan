@@ -1,0 +1,6 @@
+# Circular include to test loop detection in includes. Change how the path is written to test if absolute paths are checked instead of the path string.
+include: ../files/circular3.yaml
+
+variables:
+  var7: value7
+  var8: value8

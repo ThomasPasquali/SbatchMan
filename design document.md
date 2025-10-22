@@ -198,7 +198,7 @@ Variables can be used for generating multiple cluster configurations and job var
     * **bool**: A boolean value.
   * Lists: lists of values. When multiple list variables are defined, all combinations of their values are generated.
   * Standard maps: key-value pairs, where the value can be referenced using the key.
-  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. The key is the cluster name.
+  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. When referencing a cluster map, the value corresponding to the current cluster is used. Differently from standard maps, a default value can also be specified.
   * Special types:
     * `@dir path`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
     * `@file path`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.

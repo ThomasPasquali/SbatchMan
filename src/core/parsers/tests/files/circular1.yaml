@@ -1,0 +1,6 @@
+# A file that includes itself to test loop detection in includes.
+include: circular1.yaml
+
+variables:
+  var1: value1
+  var2: value2

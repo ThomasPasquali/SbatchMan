@@ -1,0 +1,6 @@
+# Circular include to test loop detection in includes.
+include: circular4.yaml
+
+variables:
+  var5: value5
+  var6: value6

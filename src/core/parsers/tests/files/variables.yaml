@@ -14,14 +14,13 @@ variables:
 
   # Explicit values list. Same as ["impl1", "impl2", "impl3"].
   implementation:
-    - "impl1"
-    - "impl2"
-    - "impl3"
+    - true
+    - -5
+    - -5.0
 
   # This is basically a dictionary/map. The default value is optional.
   # If the default value is not set, accessing undefined keys will result in an error. 
   args:
-    default: ""
     map:
       "impl1": "--arg-for-impl1 --another-for-impl1"
       "impl2": "--arg-for-impl2"
@@ -30,12 +29,9 @@ variables:
   nodes:
     default: [1, 2, 4, 8]
     per_cluster:
-      clusterA: [1, 2, 4]
-      clusterB: [1, 2, 4, 8, 16, 32]
+      clusterA: [1]
+      clusterB: [1, 2]
 
   # This is a variable with a single value that will be later overwritten
   to_override: 'NOT OVERWRITTEN'
-
-
-
-
+  to_override1: 'NOT OVERWRITTEN'

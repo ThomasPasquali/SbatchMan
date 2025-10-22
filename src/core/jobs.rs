@@ -37,7 +37,7 @@ pub enum JobError {
 pub fn launch_jobs_from_file(path: &PathBuf, db: &mut Database, cluster_name: &str) -> Result<(), JobError> {
   let jobs = crate::core::parsers::parse_jobs_from_file(path)?;
   let cluster = db.get_cluster_by_name(cluster_name)?;
-  let configs = db.get_configs_by_cluster_name(&cluster)?;
+  let configs = db.get_configs_by_cluster(&cluster)?;
   let mut to_launch_really = jobs.len();
   if let Some(max_jobs) = cluster.max_jobs {
     let enqueued_jobs = get_scheduler(&cluster.scheduler).get_number_of_enqueued_jobs()?;

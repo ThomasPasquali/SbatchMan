@@ -33,7 +33,7 @@ pub struct SbatchmanConfig {
 pub fn init_sbatchman_dir(path: &PathBuf) -> Result<(), SbatchmanConfigError> {
   let path = path.join(".sbatchman");
   std::fs::create_dir_all(&path).map_err(SbatchmanConfigError::FilesystemError)?;
-  init_sbatchman_config(&path);
+  init_sbatchman_config(&path)?;
   Database::new(&path)?;
   Ok(())
 }

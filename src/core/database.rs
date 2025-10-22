@@ -1,10 +1,13 @@
 pub mod models;
 pub mod schema;
 
+#[cfg(test)]
+mod tests;
+
 use diesel::prelude::*;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use log::debug;
-use std::{collections::HashMap, io, path::PathBuf};
+use std::{collections::HashMap, io, path::Path};
 use thiserror::Error;
 
 use crate::core::database::models::{NewClusterConfig, Status};
@@ -33,7 +36,7 @@ pub struct Database {
 }
 
 impl Database {
-  pub fn new(path: &PathBuf) -> Result<Self, StorageError> {
+  pub fn new(path: &Path) -> Result<Self, StorageError> {
     let path = path.join("sbatchman.db");
     let database_url = path.to_str().unwrap();
     let mut conn =
@@ -138,7 +141,7 @@ impl Database {
   }
   
   /// Retrieve all configs for a given cluster as a HashMap
-  pub fn get_configs_by_cluster_name(
+  pub fn get_configs_by_cluster(
     &mut self,
     cluster: &Cluster,
   ) -> Result<HashMap<String, Config>, StorageError> {

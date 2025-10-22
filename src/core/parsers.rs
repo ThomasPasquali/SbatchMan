@@ -1,22 +1,16 @@
 mod jobs;
 mod utils;
 mod variables;
+mod includes;
 
 #[cfg(test)]
 mod tests;
 
-use hashlink::LinkedHashMap;
 use log::{debug};
-use saphyr::{LoadableYamlNode, Yaml};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::path::Path;
 use thiserror::Error;
 
-use crate::core::database::models::{NewCluster, NewClusterConfig, NewConfig, Scheduler};
-use crate::core::parsers::utils::{
-  lookup_sequence, lookup_str, yaml_lookup};
-use crate::core::parsers::variables::{Variable, parse_variables};
+use crate::core::{database::models::NewClusterConfig, parsers::includes::get_include_variables};
 pub use jobs::{ParsedJob, parse_jobs_from_file};
 
 #[derive(Error, Debug)]
@@ -25,6 +19,8 @@ pub enum ParserError {
   IoError(#[from] std::io::Error),
   #[error("YAML parsing failed: {0}")]
   YamlParseFailed(#[from] saphyr::ScanError),
+  #[error("The file {0} is being included multiple times. Check if it has been included from multiple files or if there is a circular include (ex. FILE 1 -> FILE 2 -> FILE 1).")]
+  CircularInclude(String),
   #[error("YAML file is empty!")]
   YamlEmpty,
   #[error("Eval Error: {0}")]
@@ -35,74 +31,15 @@ pub enum ParserError {
   WrongType(String, String),
 }
 
-/// Intermediate representation of a parsed configuration (before mapping to DB models)
-#[derive(Debug, Clone)]
-pub struct ParsedConfig {
-  pub name_template: String,
-  pub params: serde_json::Value,
-  pub extra_headers: Vec<String>,
-}
+pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig<'_>>, ParserError> {
+  let variables = get_include_variables(root)?;
 
-fn get_include_variables<'a>(yaml: &Yaml, path: &Path) -> Result<LinkedHashMap<String, Variable>, ParserError> {
-  debug!("Loading included variables from file: {:?}", &path);
-  let mut variables = LinkedHashMap::new();
-
-  if let Some(yaml_variables) = yaml_lookup(&yaml, "variables") {
-    let new_variables = parse_variables(&yaml_variables)?;
-    variables.extend(new_variables);
-  }
-
-  let mut include_files: Vec<String> = Vec::new();
-
-  // Check for single include or sequence of includes
-  if let Ok(include_file) = lookup_str(&yaml, "include") {
-    include_files.push(include_file);
-  } else if let Ok(include_sequence) = lookup_sequence(&yaml, "include") {
-    for it in include_sequence.iter() {
-      if let Some(s) = it.as_str() {
-        include_files.push(s.to_string());
-      }
-    }
-  }
-
-  for file in include_files {
-    // If path is absolute, use it directly; otherwise, join with parent directory
-    let path = if Path::new(&file).is_absolute() {
-      PathBuf::from(&file)
-    } else {
-      // Throw error if parent is None
-      path.parent().ok_or(ParserError::IoError(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        format!("Cannot determine parent directory of path {:?}", path),
-      )))?.join(&file)
-    };
-    let text = fs::read_to_string(&path)?;
-    let yaml = Yaml::load_from_str(&text)
-      .map_err(ParserError::YamlParseFailed)?
-      .into_iter()
-      .next()
-      .ok_or(ParserError::YamlEmpty)?;
-    let inc_vars = get_include_variables(&yaml, &path)?;
-    variables.extend(inc_vars);
-  }
-
-  Ok(variables)
-}
-
-/// Public parser entry. Returns intermediate ParsedCluster objects.
-pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig>, ParserError> {
-  let text = fs::read_to_string(&root)?;
-  let yaml = Yaml::load_from_str(&text)
-    .map_err(ParserError::YamlParseFailed)?
-    .into_iter()
-    .next()
-    .ok_or(ParserError::YamlEmpty)?;
-  
-  let variables = get_include_variables(&yaml, root)?;
+  debug!("Parsed variables: {:?}", variables);
+  Ok(vec![])
 
   // FIXME
-  panic!("Not tested from here on!!!");
-
+  // panic!("Not tested from here on!!!");
+/*
   // Top-level variables collection
   let variables_map = collect_variables(&yaml, &base_dir)?;
 
@@ -256,5 +193,5 @@ pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterCon
     fully_expanded_clusters.push(pc);
   }
 
-  Ok(fully_expanded_clusters)
+  Ok(fully_expanded_clusters)*/
 }

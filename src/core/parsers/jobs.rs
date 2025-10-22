@@ -11,7 +11,7 @@ pub struct ParsedJob<'a> {
   pub variables: &'a serde_json::Value,
 }
 
-pub fn parse_jobs_from_file(path: &PathBuf) -> Result<Vec<ParsedJob>, ParserError> {
+pub fn parse_jobs_from_file(path: &PathBuf) -> Result<Vec<ParsedJob<'_>>, ParserError> {
   // FIXME implement job parsing logic
   Ok(vec![])
 }

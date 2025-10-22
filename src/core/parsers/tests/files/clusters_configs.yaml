@@ -23,6 +23,8 @@ variables:
 
   task_cpus: [1, 4, 8]
 
+  to_override1: 'OVERWRITTEN'
+
 # Values set here will be set on EVERY configuration
 # Note: they can be overwritten
 default_params:
