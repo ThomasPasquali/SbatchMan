@@ -29,6 +29,8 @@ pub enum ParserError {
   MissingKey(String),
   #[error("Wrong type for value \"{0}\", expected type {1}")]
   WrongType(String, String),
+  #[error("Include error: {0} is neither a string nor a sequence")]
+  IncludeWrongType(String),
 }
 
 pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig<'_>>, ParserError> {

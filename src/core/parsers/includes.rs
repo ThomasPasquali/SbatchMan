@@ -25,7 +25,6 @@ fn push_file_to_include_list(
       )))?
       .join(file)
   };
-  println!("Including file: {:?} from file {:?}", path, base_path);
   let canonical_path = fs::canonicalize(&path)?;
   if included_files.contains(&canonical_path) {
     return Err(ParserError::CircularInclude(file.to_string()));
@@ -50,14 +49,20 @@ pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable
     let yaml = load_yaml_from_file(&current_path)?;
   
     // Single include
-    if let Ok(file) = lookup_str(&yaml, "include") {
-      push_file_to_include_list(&file, &current_path, &mut included_files, &mut to_include)?;
-    } else if let Ok(include_sequence) = lookup_sequence(&yaml, "include") {
-      // Multiple includes. Last in list should be processed first, so that variables included from earlier files or deeper in the tree don't override earlier ones. Therefore we push to the stack from first to last.
-      for it in include_sequence.iter() {
-        if let Some(file) = it.as_str() {
-          push_file_to_include_list(file, &current_path, &mut included_files, &mut to_include)?;
+    if let Some(node) = yaml_lookup(&yaml, "include") {
+      if let Some(file) = node.as_str() {
+        push_file_to_include_list(&file, &current_path, &mut included_files, &mut to_include)?;
+      } else if let Some(include_sequence) = node.as_sequence() {
+        // Multiple includes. Last in list should be processed first, so that variables included from earlier files or deeper in the tree don't override earlier ones. Therefore we push to the stack from first to last.
+        for it in include_sequence.iter() {
+          if let Some(file) = it.as_str() {
+            push_file_to_include_list(file, &current_path, &mut included_files, &mut to_include)?;
+          } else {
+            return Err(ParserError::IncludeWrongType(format!("{:?}", it)));
+          }
         }
+      } else {
+        return Err(ParserError::IncludeWrongType(format!("{:?}", node)));
       }
     }
     included_files.push(fs::canonicalize(current_path)?);

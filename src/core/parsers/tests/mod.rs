@@ -154,8 +154,15 @@ fn test_get_include_variables_include_empty() {
   let path = get_test_path("include_empty.yaml");
 
   let result = get_include_variables(&path);
-  let variables = result.unwrap();
-  assert_eq!(variables.len(), 2);
+  assert!(matches!(result.err(), Some(ParserError::IncludeWrongType(..))));
+}
+
+#[test]
+fn test_get_include_variables_include_number() {
+  let path = get_test_path("include_number.yaml");
+
+  let result = get_include_variables(&path);
+  assert!(matches!(result.err(), Some(ParserError::IncludeWrongType(..))));
 }
 
 #[test]
