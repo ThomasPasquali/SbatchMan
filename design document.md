@@ -184,32 +184,42 @@ pub struct JobFilter {
   * **Archived:** Filter jobs based on their archived status.
   * **Submit/End Time Range:** Filter jobs that were submitted or ended within a specific date-time window.
 
-## Configuration File Specification
+## YAML Configuration Specification
 
-`sbatchman` uses YAML for defining clusters and jobs. This system is designed to be highly flexible, enabling the generation of many job variants from a concise definition.
+`sbatchman` uses YAML for defining clusters and jobs. There are two primary configuration files:
+  * **Clusters Configuration File:** Defines clusters and their configurations.
+  * **Jobs Configuration File:** Defines jobs to be submitted.
 
-### Syntax and Concepts
+Variables can be used for generating multiple cluster configurations and job variants. The following main variable types are defined: simple variables, lists, standard maps, cluster maps, and special variables.
+  * Simple types:
+    * **string**: A standard string value.
+    * **int**: An integer value.
+    * **float**: A floating-point value.
+    * **bool**: A boolean value.
+  * Lists: lists of values. When multiple list variables are defined, all combinations of their values are generated.
+  * Standard maps: key-value pairs, where the value can be referenced using the key.
+  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. The key is the cluster name.
+  * Special types:
+    * `@dir path`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
+    * `@file path`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
 
-  * **Includes:** Configuration files can be composed together using the `include: <path>` directive.
-  * **Variable Types:**
-    * **string:** A standard string value.
-    * **int:** An integer value.
-    * **float:** A floating-point value.
-    * **bool:** A boolean value.
-    * **array:** A list of values, used for generating combinatorial job variants.
-    * **map:** A key-value dictionary.
-    * **per_cluster:** A special mapping that allows different values for different clusters.
-    * **`@dir path`:** A special directive that expands to an array of file/directory names within the specified path.
-    * **`@file path`:** A special directive that expands to an array of lines from the specified file.
-  * **Substitution Syntax:**
-    * **Simple Substitution:** `{var}` is replaced by the value of the variable `var`. For maps, the syntax `{map[key]}` is used. If `key` is a variable, it should be prefixed with `$`, e.g., `{map[$var]}`.
-    * **Python Block:** `{{ ... }}` allows for inline Python expressions for generating variables dynamically.
-      * `sbatchman` variables are accessible within the block and must be prefixed with a `$`.
-  * **Predefined Variables:**
-    * `work_dir`: The working directory where `sbatchman` was invoked.
-    * `out_dir`: The output directory for the job's results.
-    * `config_name`: The name of the cluster configuration being used.
-    * `cluster_name`: The name of the cluster being used.
+There are also some predefined variables available in the job configuration file:
+  * `work_dir`: The working directory where `sbatchman` was invoked.
+  * `out_dir`: The output directory for the job's results.
+  * `config_name`: The name of the cluster configuration being used.
+  * `cluster_name`: The name of the cluster being used.
+
+### Substitutions
+Variables can be referenced in the following fields:
+  - Clusters config file: `name`, `params`, `options`, `env`
+  - Jobs config file: `command`, `preprocess`, `postprocess`, `name`, `cluster_config`
+
+**Substitution syntax:** `{var}` is replaced by the value of the variable `var`. For **standard** maps, the syntax `{map[key]}` is used. If `key` is a variable, it should be prefixed with `$`, e.g., `{map[$var]}`.
+
+### Python Blocks
+When the simple logic offered by variables is not enough, Python blocks can be used to generate variables dynamically with the `{{ ... }}` syntax. A Python block can either return a single value or a list of values. If a list is returned, multiple job variants will be generated for each value in the list.
+
+To decide the order of the evaluation of variables, a DAG is constructed based on variable dependencies. If a DAG cannot be constructed due to circular dependencies, an error is raised.
 
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
@@ -229,7 +239,6 @@ variables:
       clusterB: ["partition_cpu_B"]
 
   qos:
-    default: "normal"
     map:
       "cpu_A": "normal_A"
       "gpu_A": "gpu_A"
@@ -300,7 +309,6 @@ postprocess: echo "Cleaning up after {dataset_dir}"
 jobs:
   - name: baseline_experiment
     cluster_config: gpu_config_{gpu_list}
-    scheduler: local
     variants:
       - name: flag_{flags}
       - name: custom_flag

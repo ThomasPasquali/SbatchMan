@@ -12,25 +12,26 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
+use std::fmt::Debug;
 
 use crate::core::parsers::utils::{
-  check_and_get_yaml_first_document, load_yaml_from_file, parse_sequence, parse_str, yaml_has_key, yaml_lookup, yaml_lookup_mut, yaml_mapping_merge
+  check_and_get_yaml_first_document, load_yaml_from_file, parse_sequence, lookup_str, yaml_has_key, yaml_lookup, yaml_lookup_mut, yaml_mapping_merge
 };
 use crate::core::database::models::{NewCluster, NewClusterConfig, NewConfig, Scheduler};
 pub use jobs::{parse_jobs_from_file, ParsedJob};
 
 #[derive(Error, Debug)]
-pub enum ParserError {
+pub enum ParserError<'a> {
   #[error("IO Error: {0}")]
   IoError(#[from] std::io::Error),
   #[error("YAML Parse Error: {0}")]
-  YamlParseError(String),
+  YamlParseError(&'a str),
   #[error("Eval Error: {0}")]
-  EvalError(String),
+  EvalError(&'a str),
   #[error("Missing Key: {0}")]
-  MissingKey(String),
-  #[error("Wrong type for key: {0}, expected {1}")]
-  WrongType(String, String),
+  MissingKey(&'a str),
+  #[error("Wrong type for value \"{0:?}\", expected type {1}")]
+  WrongType(&'a dyn Debug, &'a str),
 }
 
 /// Intermediate representation of a parsed configuration (before mapping to DB models)
@@ -50,7 +51,7 @@ fn load_and_merge_includes<'a>(
   }
 
   let mut include_files: Vec<String> = Vec::new();
-  if let Ok(include_file) = parse_str(&base, "include") {
+  if let Ok(include_file) = lookup_str(&base, "include") {
     include_files.push(include_file);
   } else if let Ok(include_sequence) = parse_sequence(&base, "include") {
     for it in include_sequence.iter() {

@@ -1,32 +1,34 @@
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
-use saphyr::Yaml;
+use hashlink::LinkedHashMap;
+use saphyr::{Yaml, Scalar as YamlScalar};
 
-enum Literal {
+use crate::core::parsers::ParserError;
+
+enum Scalar {
   String(String),
   Int(i64),
   Float(f64),
   Bool(bool),
+  File(String),
+  Directory(String),
 }
 
 enum BasicVar {
-  Literal(Literal),
-  List(Vec<Literal>),
-  File(String),
-  Directory(String),
+  Scalar(Scalar),
+  List(Vec<Scalar>),
 }
 
-enum MappingVar {
-  StandardMap(std::collections::HashMap<String, BasicVar>),
-  ClusterMap(std::collections::HashMap<String, BasicVar>)
+struct ClusterMap {
+  default: Option<BasicVar>,
+  per_cluster: HashMap<String, BasicVar>,
 }
 
 enum CompleteVar {
-  Literal(Literal),
-  List(Vec<Literal>),
-  File(String),
-  Directory(String),
-  Mapping(MappingVar),
+  Scalar(Scalar),
+  List(Vec<Scalar>),
+  StandardMap(HashMap<String, BasicVar>),
+  ClusterMap(ClusterMap),
 }
 
 struct Variable {
@@ -40,123 +42,114 @@ impl PartialEq for Variable {
   }
 }
 
-impl Hash for Variable {
-  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-    self.name.hash(state);
+fn parse_scalar<'a>(s: &'a YamlScalar) -> Result<Scalar, ParserError<'a>> {
+  match s {
+    YamlScalar::String(s) => {
+      if s.starts_with("@file ") {
+        Ok(Scalar::File(s["@file ".len()..].to_string()))
+      } else if s.starts_with("@dir ") {
+        Ok(Scalar::Directory(s["@dir ".len()..].to_string()))
+      } else {
+        Ok(Scalar::String(s.to_string()))
+      }
+    },
+    YamlScalar::Integer(i) => Ok(Scalar::Int(*i)),
+    YamlScalar::FloatingPoint(f) => Ok(Scalar::Float(**f)),
+    YamlScalar::Boolean(b) => Ok(Scalar::Bool(*b)),
+    _ => {
+      return Err(ParserError::WrongType(s, "string, integer, float, or boolean"));
+    }
   }
 }
 
-struct StringVar {
-  value: String, // TODO dynamic String Int Float Bool
+fn parse_sequence_of_scalars<'a>(seq: &'a Vec<Yaml<'a>>) -> Result<Vec<Scalar>, ParserError<'a>> {
+  let mut scalars: Vec<Scalar> = Vec::new();
+  for item in seq.iter() {
+    match item {
+      Yaml::Value(s) => {
+        scalars.push(parse_scalar(s)?);
+      },
+      _ => {
+        return Err(ParserError::WrongType(item, "scalar"));
+      }
+    }
+  }
+  Ok(scalars)
 }
 
-fn parse_variables(yaml: Yaml) -> Result<HashMap<String, Variable>, crate::core::parsers::ParserError> {
-  let mut variables: HashMap<String, Variable> = HashMap::new();
+fn parse_mapping<'a>(
+  map: &'a LinkedHashMap<Yaml<'a>, Yaml<'a>>,
+) -> Result<HashMap<String, BasicVar>, ParserError<'a>> {
+  let mut result: HashMap<String, BasicVar> = HashMap::new();
 
-  if let Some(vars_yaml) = crate::core::parsers::utils::yaml_lookup(&yaml, "variables") {
-    if let Yaml::Mapping(map) = vars_yaml {
-      for (k, v) in map.iter() {
-        if let Some(var_name) = k.as_str() {
-          let variable = match v {
-            Yaml::String(s) => Variable {
-              name: var_name.to_string(),
-              contents: CompleteVar::String(StringVar { value: s.to_string() }),
-            },
-            Yaml::Sequence(seq) => {
-              let mut values: Vec<String> = Vec::new();
-              for item in seq.iter() {
-                if let Some(item_str) = item.as_str() {
-                  values.push(item_str.to_string());
-                } else {
-                  return Err(crate::core::parsers::ParserError::WrongType(
-                    var_name.to_string(),
-                    "string".to_string(),
-                  ));
-                }
-              }
-              Variable {
-                name: var_name.to_string(),
-                contents: CompleteVar::List(ListVar { values }),
-              }
-            }
-            Yaml::Mapping(map) => {
-              let mut mapping_values: std::collections::HashMap<String, BasicVar> =
-                std::collections::HashMap::new();
-              let mut cluster_map = false;
-              for (mk, mv) in map.iter() {
-                if let Some(mk_str) = mk.as_str() {
-                  match mv {
-                    Yaml::String(s) => {
-                      mapping_values.insert(
-                        mk_str.to_string(),
-                        BasicVar::String(StringVar { value: s.to_string() }),
-                      );
-                    }
-                    Yaml::Sequence(seq) => {
-                      let mut list_values: Vec<String> = Vec::new();
-                      for item in seq.iter() {
-                        if let Some(item_str) = item.as_str() {
-                          list_values.push(item_str.to_string());
-                        } else {
-                          return Err(crate::core::parsers::ParserError::WrongType(
-                            mk_str.to_string(),
-                            "string".to_string(),
-                          ));
-                        }
-                      }
-                      mapping_values.insert(
-                        mk_str.to_string(),
-                        BasicVar::List(ListVar { values: list_values }),
-                      );
-                    }
-                    _ => {
-                      return Err(crate::core::parsers::ParserError::WrongType(
-                        mk_str.to_string(),
-                        "string or list".to_string(),
-                      ));
-                    }
-                  }
-                  if mk_str == "clusters" {
-                    cluster_map = true;
-                  }
-                } else {
-                  return Err(crate::core::parsers::ParserError::WrongType(
-                    var_name.to_string(),
-                    "string".to_string(),
-                  ));
-                }
-              }
-              Variable {
-                name: var_name.to_string(),
-                contents: CompleteVar::Mapping(MappingVar {
-                  values: mapping_values,
-                  cluster_map,
-                }),
-              }
-            }
-            _ => {
-              return Err(crate::core::parsers::ParserError::WrongType(
-                var_name.to_string(),
-                "string, list, or mapping".to_string(),
-              ));
-            }
-          };
-          variables.push(variable);
-        } else {
-          return Err(crate::core::parsers::ParserError::WrongType(
-            "variable name".to_string(),
-            "string".to_string(),
-          ));
+  for (k, v) in map.iter() {
+    let key_str = k.as_str().ok_or(ParserError::WrongType(k, "string"))?;
+    let basic_var = match v {
+      Yaml::Value(s) => BasicVar::Scalar(parse_scalar(s)?),
+      Yaml::Sequence(seq) => BasicVar::List(parse_sequence_of_scalars(seq)?),
+      _ => {
+        return Err(ParserError::WrongType(v, "scalar or list"));
+      }
+    };
+    result.insert(key_str.to_string(), basic_var);
+  }
+
+  Ok(result)
+}
+
+fn parse_basic_var<'a>(yaml: &'a Yaml) -> Result<BasicVar, ParserError<'a>> {
+  match yaml {
+    Yaml::Value(s) => Ok(BasicVar::Scalar(parse_scalar(s)?)),
+    Yaml::Sequence(seq) => Ok(BasicVar::List(parse_sequence_of_scalars(seq)?)),
+    _ => {
+      return Err(ParserError::WrongType(yaml, "scalar or list"));
+    }
+  }
+}
+
+// Convert &str into Yaml using Yaml::value_from_str
+macro_rules! yaml_str {
+  ($s:expr) => {
+    Yaml::value_from_str($s)
+  };
+}
+
+fn parse_variables<'a>(
+  yaml: &'a Yaml,
+) -> Result<HashMap<String, Variable>, ParserError<'a>> {
+  let mut variables: HashMap<String, Variable> = HashMap::new();
+  let map = yaml.as_mapping().ok_or(ParserError::WrongType(yaml, "mapping"))?;
+
+  for (k, v) in map.iter() {
+    let k = k.as_str().ok_or(ParserError::WrongType(k, "string"))?;
+    let v = Variable {
+      name: k.to_string(),
+      contents: match v {
+        Yaml::Value(s) => {
+          parse_scalar(s).map(CompleteVar::Scalar)?
+        },
+        Yaml::Sequence(seq) => {
+          parse_sequence_of_scalars(seq).map(CompleteVar::List)?
+        },
+        Yaml::Mapping(map) => {
+          if let Some(cluster_map) = map.get(&yaml_str!("per_cluster")) {
+            let default = map.get(&yaml_str!("default")).and_then(|d| Some(parse_basic_var(d))).transpose()?;
+            CompleteVar::ClusterMap(ClusterMap {
+              default,
+              per_cluster: parse_mapping(cluster_map.as_mapping().ok_or(ParserError::WrongType(map, "map"))?)?,
+            })
+          } else if let Some(map) = map.get(&yaml_str!("map")) {
+            parse_mapping(map.as_mapping().ok_or(ParserError::WrongType(map, "map"))?).map(CompleteVar::StandardMap)?
+          } else {
+            return Err(ParserError::WrongType(v, "mapping with 'per_cluster' or 'map' key"));
+          }
+        }
+        _ => {
+          return Err(ParserError::WrongType(v, "scalar, list, or mapping"));
         }
       }
-    } else {
-      return Err(crate::core::parsers::ParserError::WrongType(
-        "variables".to_string(),
-        "mapping".to_string(),
-      ));
-    }
-  } else {
-    warn!("No 'variables' section found in YAML.");
+    };
+    variables.insert(v.name.clone(), v);
   }
   Ok(variables)
 }

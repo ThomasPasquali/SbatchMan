@@ -64,26 +64,12 @@ pub fn yaml_mapping_merge<'a, 'b, 'c>(original: &'a Yaml<'a>, new: &'b Yaml<'b>)
   unsafe { std::mem::transmute(result) }
 }
 
-pub fn yaml_has_key(node: &Yaml, key: &str) -> bool {
-  yaml_lookup(node, key).is_some()
-}
-
-pub fn parse_str(yaml: &Yaml, str: &str) -> Result<String, ParserError> {
-  match yaml_lookup(yaml, str) {
+pub fn lookup_str<'a>(yaml: &'a Yaml, key: &'a str) -> Result<String, ParserError<'a>> {
+  match yaml_lookup(yaml, key) {
     Some(y) => match y.as_str() {
       Some(s) => Ok(s.to_string()),
-      None => Err(ParserError::WrongType(str.to_string(), "string".to_string())),
+      None => Err(ParserError::WrongType(yaml, "string")),
     },
-    None => Err(ParserError::MissingKey(str.to_string())),
-  }
-}
-
-pub fn parse_sequence<'a>(yaml: &Yaml<'a>, key: &str) -> Result<Vec<Yaml<'a>>, ParserError> {
-  match yaml_lookup(yaml, key) {
-    Some(y) => match y {
-      Yaml::Sequence(seq) => Ok(seq.clone()),
-      _ => Err(ParserError::WrongType(key.to_string(), "sequence".to_string())),
-    },
-    None => Err(ParserError::MissingKey(key.to_string())),
+    None => Err(ParserError::MissingKey(key)),
   }
 }
