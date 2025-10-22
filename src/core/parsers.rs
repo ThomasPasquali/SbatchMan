@@ -1,37 +1,38 @@
-mod utils;
 mod jobs;
+mod utils;
 mod variables;
 
 #[cfg(test)]
 mod tests;
 
-use log::{debug, warn};
-use saphyr::Yaml;
-use std::collections::HashMap;
+use hashlink::LinkedHashMap;
+use log::{debug};
+use saphyr::{LoadableYamlNode, Yaml};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
-use std::fmt::Debug;
 
-use crate::core::parsers::utils::{
-  check_and_get_yaml_first_document, load_yaml_from_file, parse_sequence, lookup_str, yaml_has_key, yaml_lookup, yaml_lookup_mut, yaml_mapping_merge
-};
 use crate::core::database::models::{NewCluster, NewClusterConfig, NewConfig, Scheduler};
-pub use jobs::{parse_jobs_from_file, ParsedJob};
+use crate::core::parsers::utils::{
+  lookup_sequence, lookup_str, yaml_lookup};
+use crate::core::parsers::variables::{Variable, parse_variables};
+pub use jobs::{ParsedJob, parse_jobs_from_file};
 
 #[derive(Error, Debug)]
-pub enum ParserError<'a> {
+pub enum ParserError {
   #[error("IO Error: {0}")]
   IoError(#[from] std::io::Error),
-  #[error("YAML Parse Error: {0}")]
-  YamlParseError(&'a str),
+  #[error("YAML parsing failed: {0}")]
+  YamlParseFailed(#[from] saphyr::ScanError),
+  #[error("YAML file is empty!")]
+  YamlEmpty,
   #[error("Eval Error: {0}")]
-  EvalError(&'a str),
+  EvalError(String),
   #[error("Missing Key: {0}")]
-  MissingKey(&'a str),
-  #[error("Wrong type for value \"{0:?}\", expected type {1}")]
-  WrongType(&'a dyn Debug, &'a str),
+  MissingKey(String),
+  #[error("Wrong type for value \"{0}\", expected type {1}")]
+  WrongType(String, String),
 }
 
 /// Intermediate representation of a parsed configuration (before mapping to DB models)
@@ -42,467 +43,62 @@ pub struct ParsedConfig {
   pub extra_headers: Vec<String>,
 }
 
-fn load_and_merge_includes<'a>(
-  mut base: Yaml<'a>,
-  base_dir: &Path,
-) -> Result<Yaml<'a>, ParserError> {
-  if !base.is_mapping() {
-    return Ok(base);
+fn get_include_variables<'a>(yaml: &Yaml, path: &Path) -> Result<LinkedHashMap<String, Variable>, ParserError> {
+  debug!("Loading included variables from file: {:?}", &path);
+  let mut variables = LinkedHashMap::new();
+
+  if let Some(yaml_variables) = yaml_lookup(&yaml, "variables") {
+    let new_variables = parse_variables(&yaml_variables)?;
+    variables.extend(new_variables);
   }
 
   let mut include_files: Vec<String> = Vec::new();
-  if let Ok(include_file) = lookup_str(&base, "include") {
+
+  // Check for single include or sequence of includes
+  if let Ok(include_file) = lookup_str(&yaml, "include") {
     include_files.push(include_file);
-  } else if let Ok(include_sequence) = parse_sequence(&base, "include") {
+  } else if let Ok(include_sequence) = lookup_sequence(&yaml, "include") {
     for it in include_sequence.iter() {
       if let Some(s) = it.as_str() {
         include_files.push(s.to_string());
       }
     }
   }
-  debug!("Files to be included: {:?}", &include_files);
 
   for file in include_files {
-    let inc_path = base_dir.join(&file);
-    debug!("Parsing included file: {}", inc_path.to_str().unwrap());
-    let include_yaml = load_yaml_from_file(&inc_path)?;
-
-    if let Some(inc_vars) = yaml_lookup(&include_yaml, "variables") {
-      if let Some(base_vars) = yaml_lookup(&base, "variables") {
-        // Create a new merged Yaml with lifetime 'a
-        let merged: Yaml<'a> = yaml_mapping_merge(base_vars, inc_vars);
-        debug!("Var base: {:?}", base_vars);
-        debug!("Var incl: {:?}", inc_vars);
-        debug!("Var merg: {:?}", merged);
-
-        // Now update base with the merged result
-        if let Some(base_vars_mut) = yaml_lookup_mut(&mut base, "variables") {
-          *base_vars_mut = merged;
-        } else {
-          base
-            .as_mapping_mut()
-            .unwrap()
-            .insert(Yaml::scalar_from_string("variables".to_string()), merged);
-        }
-
-      }
-    }
-
-    // Warn for unused keys
-    if let Yaml::Mapping(include_yaml_map) = &include_yaml {
-      for (k_node, _) in include_yaml_map.iter() {
-        if let Some(key) = k_node.as_str() {
-          if key != "variables" && key != "include" {
-            warn!("The `include` keyword imports only `variables` blocks. Ignored key '{}'", key)
-          }
-        }
-      }
-    }
-
-  }
-
-  base.as_mapping_mut().unwrap().remove(&Yaml::value_from_str("include"));
-  debug!("SETTED TO BASE: {:?}", base.as_mapping().unwrap());
-
-  Ok(base.clone())
-}
-
-/// Collect variables from top-level `variables` block.
-fn collect_variables(
-  root: &Yaml,
-  base_dir: &Path,
-) -> Result<HashMap<String, serde_json::Value>, ParserError> {
-  if let Some(vars_node) = yaml_lookup(root, "variables") {
-    let block = parse_variables_block(&vars_node, base_dir)?;
-    Ok(block)
-  } else {
-    Ok(HashMap::new())
-  }
-}
-
-/// Parse a `variables` block (Yaml node) into a HashMap<String, serde_json::Value>
-fn parse_variables_block(
-  vars_node: &Yaml,
-  base_dir: &Path,
-) -> Result<HashMap<String, serde_json::Value>, ParserError> {
-  let mut out = HashMap::new();
-  if !vars_node.is_mapping() {
-    return Err(ParserError::YamlParseError(
-      "'variables' must be a mapping".to_string(),
-    ));
-  }
-  if let Yaml::Mapping(mvec) = vars_node {
-    for (k_node, v_node) in mvec.iter() {
-      let key = k_node
-        .as_str()
-        .ok_or_else(|| ParserError::YamlParseError("variable name must be string".to_string()))?
-        .to_string();
-      if v_node.is_string() {
-        let s = v_node.as_str().unwrap();
-        if s.starts_with("@file") {
-          let parts: Vec<&str> = s.splitn(2, ' ').collect();
-          let path_part = if parts.len() == 2 {
-            parts[1].trim()
-          } else {
-            ""
-          };
-          let resolved = base_dir.join(path_part);
-          let content = fs::read_to_string(&resolved)?;
-          let lines: Vec<String> = content
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect();
-          out.insert(key, serde_json::json!(lines));
-          continue;
-        } else if s.starts_with("@dir") {
-          let parts: Vec<&str> = s.splitn(2, ' ').collect();
-          let path_part = if parts.len() == 2 {
-            parts[1].trim()
-          } else {
-            ""
-          };
-          let resolved = base_dir.join(path_part);
-          let mut list = Vec::new();
-          if resolved.is_dir() {
-            for entry in fs::read_dir(&resolved)? {
-              let e = entry?;
-              let fname = e.file_name().to_string_lossy().to_string();
-              if !fname.starts_with('.') {
-                list.push(fname);
-              }
-            }
-          }
-          out.insert(key, serde_json::json!(list));
-          continue;
-        } else {
-          out.insert(key, serde_json::json!(s));
-          continue;
-        }
-      } else if v_node.is_sequence() {
-        let mut arr = Vec::new();
-        if let Yaml::Sequence(seq) = v_node {
-          for it in seq.iter() {
-            if let Some(s) = it.as_str() {
-              arr.push(s.to_string());
-            } else {
-              arr.push(format!("{:?}", it));
-            }
-          }
-        }
-        out.insert(key, serde_json::json!(arr));
-        continue;
-      } else if v_node.is_mapping() {
-        let json = yamlnode_to_json(v_node)?;
-        out.insert(key, json);
-        continue;
-      } else {
-        out.insert(key, serde_json::json!(format!("{:?}", v_node)));
-      }
-    }
-  }
-  Ok(out)
-}
-
-/// Convert a saphyr::Yaml node into serde_json::Value
-fn yamlnode_to_json(n: &Yaml) -> Result<serde_json::Value, ParserError> {
-  if n.is_null() {
-    return Ok(serde_json::Value::Null);
-  } else if n.is_boolean() {
-    return Ok(serde_json::Value::Bool(n.as_bool().unwrap()));
-  } else if n.is_integer() {
-    return Ok(serde_json::Value::Number(serde_json::Number::from(
-      n.as_integer().unwrap(),
-    )));
-  } else if n.is_floating_point() {
-    let f = n.as_floating_point().unwrap();
-    let num = serde_json::Number::from_f64(f)
-      .ok_or_else(|| ParserError::YamlParseError("Invalid float".to_string()))?;
-    return Ok(serde_json::Value::Number(num));
-  } else if n.is_string() {
-    return Ok(serde_json::Value::String(n.as_str().unwrap().to_string()));
-  } else if n.is_sequence() {
-    let mut v = Vec::new();
-    if let Yaml::Sequence(seq) = n {
-      for it in seq.iter() {
-        v.push(yamlnode_to_json(it)?);
-      }
-    }
-    return Ok(serde_json::Value::Array(v));
-  } else if n.is_mapping() {
-    let mut map = serde_json::Map::new();
-    if let Yaml::Mapping(mvec) = n {
-      for (k_node, v_node) in mvec.iter() {
-        let key = k_node
-          .as_str()
-          .unwrap_or(&format!("{:?}", k_node))
-          .to_string();
-        map.insert(key, yamlnode_to_json(v_node)?);
-      }
-    }
-    return Ok(serde_json::Value::Object(map));
-  }
-  Ok(serde_json::Value::Null)
-}
-
-/// Simple merging of JSON objects: values from `b` override `a` (deep merge for objects).
-fn merge_json(a: &mut serde_json::Value, b: &serde_json::Value) {
-  match (a, b) {
-    (serde_json::Value::Object(map_a), serde_json::Value::Object(map_b)) => {
-      for (k, v_b) in map_b.iter() {
-        if let Some(v_a) = map_a.get_mut(k) {
-          merge_json(v_a, v_b);
-        } else {
-          map_a.insert(k.clone(), v_b.clone());
-        }
-      }
-    }
-    (slot, v_b) => {
-      *slot = v_b.clone();
-    }
-  }
-}
-
-/// Expand templates inside a serde_json::Value recursively.
-fn expand_json_templates(
-  v: &serde_json::Value,
-  variables: &HashMap<String, serde_json::Value>,
-  context: Option<&HashMap<String, serde_json::Value>>,
-) -> Result<serde_json::Value, ParserError> {
-  match v {
-    serde_json::Value::String(s) => {
-      let out = expand_string_templates(s, variables, context)?;
-      Ok(serde_json::Value::String(out))
-    }
-    serde_json::Value::Array(arr) => {
-      let mut out = Vec::new();
-      for it in arr {
-        out.push(expand_json_templates(it, variables, context)?);
-      }
-      Ok(serde_json::Value::Array(out))
-    }
-    serde_json::Value::Object(map) => {
-      let mut out_map = serde_json::Map::new();
-      for (k, vv) in map.iter() {
-        out_map.insert(k.clone(), expand_json_templates(vv, variables, context)?);
-      }
-      Ok(serde_json::Value::Object(out_map))
-    }
-    other => Ok(other.clone()),
-  }
-}
-
-/// Expand templates inside a single string.
-/// Handles `{var}`, `{map[$key]}` and `{{ expr }}`.
-fn expand_string_templates(
-  s: &str,
-  variables: &HashMap<String, serde_json::Value>,
-  _context: Option<&HashMap<String, serde_json::Value>>,
-) -> Result<String, ParserError> {
-  // First handle {{ expr }} occurrences
-  let mut result = String::new();
-  let mut rest = s;
-  while let Some(start) = rest.find("{{") {
-    let (before, after_start) = rest.split_at(start);
-    result.push_str(before);
-    if let Some(end) = after_start.find("}}") {
-      let expr = after_start[2..end].trim();
-      let evaled = eval_expr(expr, variables)?;
-      result.push_str(&evaled.to_string());
-      rest = &after_start[end + 2..];
+    // If path is absolute, use it directly; otherwise, join with parent directory
+    let path = if Path::new(&file).is_absolute() {
+      PathBuf::from(&file)
     } else {
-      return Err(ParserError::YamlParseError(
-        "Unclosed {{ expression".to_string(),
-      ));
-    }
-  }
-  result.push_str(rest);
-
-  // Now handle { ... } templates (single braces)
-  let mut out = String::new();
-  let mut i = 0usize;
-  let bytes = result.as_bytes();
-  while i < bytes.len() {
-    if bytes[i] == b'{' {
-      if let Some(j) = result[i + 1..].find('}') {
-        let inner = result[i + 1..i + 1 + j].trim();
-        if let Some(br_idx) = inner.find('[') {
-          // parse key and index
-          let key = inner[..br_idx].trim();
-          if inner.ends_with(']') {
-            let idx = &inner[br_idx + 1..inner.len() - 1];
-            let idx_clean = idx.trim().trim_matches('$').trim();
-            let idx_val = if idx.trim().starts_with('$') {
-              variables
-                .get(idx_clean)
-                .cloned()
-                .unwrap_or(serde_json::Value::Null)
-            } else {
-              serde_json::Value::String(idx_clean.to_string())
-            };
-            if let Some(mapv) = variables.get(key) {
-              if let serde_json::Value::Object(obj) = mapv {
-                if let Some(serde_json::Value::Object(m)) = obj.get("map") {
-                  let idxs = match idx_val {
-                    serde_json::Value::String(ref s) => s.clone(),
-                    other => other.to_string(),
-                  };
-                  if let Some(found) = m.get(&idxs) {
-                    out.push_str(&found.to_string().trim_matches('"'));
-                  } else {
-                    return Err(ParserError::YamlParseError(format!(
-                      "Missing key '{}' in map for variable '{}'",
-                      idxs, key
-                    )));
-                  }
-                } else if let Some(serde_json::Value::Object(m)) = obj.get("per_cluster") {
-                  let idxs = match idx_val {
-                    serde_json::Value::String(ref s) => s.clone(),
-                    other => other.to_string(),
-                  };
-                  if let Some(found) = m.get(&idxs) {
-                    out.push_str(&found.to_string().trim_matches('"'));
-                  } else if let Some(def) = obj.get("default") {
-                    out.push_str(&def.to_string().trim_matches('"'));
-                  } else {
-                    return Err(ParserError::YamlParseError(format!(
-                      "Missing per_cluster key '{}' for '{}'",
-                      idxs, key
-                    )));
-                  }
-                } else if let Some(def) = obj.get("default") {
-                  out.push_str(&def.to_string().trim_matches('"'));
-                } else {
-                  out.push_str(&mapv.to_string());
-                }
-              } else {
-                out.push_str(&mapv.to_string().trim_matches('"'));
-              }
-            } else {
-              return Err(ParserError::YamlParseError(format!(
-                "Unknown variable '{}'",
-                key
-              )));
-            }
-            i = i + 1 + j + 1;
-            continue;
-          } else {
-            return Err(ParserError::YamlParseError(
-              "Malformed bracketed expression".to_string(),
-            ));
-          }
-        } else {
-          // simple {var}
-          let varname = inner.trim_matches('$');
-          if let Some(vv) = variables.get(varname) {
-            match vv {
-              serde_json::Value::String(sv) => out.push_str(sv),
-              serde_json::Value::Number(n) => out.push_str(&n.to_string()),
-              serde_json::Value::Array(arr) => {
-                let s = arr
-                  .iter()
-                  .map(|x| x.to_string().trim_matches('"').to_string())
-                  .collect::<Vec<_>>()
-                  .join(",");
-                out.push_str(&s);
-              }
-              serde_json::Value::Object(_) => {
-                out.push_str(&vv.to_string());
-              }
-              serde_json::Value::Bool(b) => out.push_str(&b.to_string()),
-              _ => out.push_str(&vv.to_string()),
-            }
-          } else {
-            return Err(ParserError::YamlParseError(format!(
-              "Unknown variable '{}'",
-              varname
-            )));
-          }
-          i = i + 1 + j + 1;
-          continue;
-        }
-      } else {
-        return Err(ParserError::YamlParseError(
-          "Unclosed { in template".to_string(),
-        ));
-      }
-    } else {
-      out.push(bytes[i] as char);
-      i += 1;
-    }
-  }
-
-  Ok(out)
-}
-
-/// Evaluate a simple expression: supports integer literals, variables, and * operator.
-fn eval_expr(
-  expr: &str,
-  variables: &HashMap<String, serde_json::Value>,
-) -> Result<i64, ParserError> {
-  let mut result: Option<i64> = None;
-  for part in expr.split('*') {
-    let ptrim = part.trim();
-    let val = if let Ok(i) = ptrim.parse::<i64>() {
-      i
-    } else {
-      let name = ptrim.trim_start_matches('$');
-      if let Some(vv) = variables.get(name) {
-        match vv {
-          serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-              i
-            } else {
-              return Err(ParserError::EvalError(format!(
-                "Non-integer value for variable '{}'",
-                name
-              )));
-            }
-          }
-          serde_json::Value::String(s) => {
-            if let Ok(i) = s.parse::<i64>() {
-              i
-            } else {
-              return Err(ParserError::EvalError(format!(
-                "Cannot parse '{}' as integer for variable '{}'",
-                s, name
-              )));
-            }
-          }
-          _ => {
-            return Err(ParserError::EvalError(format!(
-              "Unsupported type for '{}' in expression",
-              name
-            )));
-          }
-        }
-      } else {
-        return Err(ParserError::EvalError(format!(
-          "Unknown variable '{}' in expression",
-          name
-        )));
-      }
+      // Throw error if parent is None
+      path.parent().ok_or(ParserError::IoError(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!("Cannot determine parent directory of path {:?}", path),
+      )))?.join(&file)
     };
-    if let Some(acc) = result {
-      result = Some(acc * val);
-    } else {
-      result = Some(val);
-    }
+    let text = fs::read_to_string(&path)?;
+    let yaml = Yaml::load_from_str(&text)
+      .map_err(ParserError::YamlParseFailed)?
+      .into_iter()
+      .next()
+      .ok_or(ParserError::YamlEmpty)?;
+    let inc_vars = get_include_variables(&yaml, &path)?;
+    variables.extend(inc_vars);
   }
-  result.ok_or_else(|| ParserError::EvalError("Empty expression".to_string()))
+
+  Ok(variables)
 }
 
 /// Public parser entry. Returns intermediate ParsedCluster objects.
 pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig>, ParserError> {
-  let yaml = Box::new(load_yaml_from_file(root)?);
-  let base_dir = root
-    .parent()
-    .map(|p| p.to_owned())
-    .unwrap_or_else(|| PathBuf::from("."));
-
-  // Merge includes recursively
-  debug!("Loading and merging included files...");
-  let yaml = load_and_merge_includes(yaml, &base_dir)?;
+  let text = fs::read_to_string(&root)?;
+  let yaml = Yaml::load_from_str(&text)
+    .map_err(ParserError::YamlParseFailed)?
+    .into_iter()
+    .next()
+    .ok_or(ParserError::YamlEmpty)?;
+  
+  let variables = get_include_variables(&yaml, root)?;
 
   // FIXME
   panic!("Not tested from here on!!!");
@@ -561,12 +157,12 @@ pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterCon
             cluster_name
           ))
         })?;
-      
+
       // max_jobs
       let max_jobs = yaml_lookup(cluster_val_node, "max_jobs")
-          .and_then(|n| n.as_integer())
-          .map(|i| i as i32);
-      
+        .and_then(|n| n.as_integer())
+        .map(|i| i as i32);
+
       // configs
       let mut parsed_configs = Vec::new();
 
