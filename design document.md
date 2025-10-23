@@ -197,13 +197,15 @@ Variables can be used for generating multiple cluster configurations and job var
     * **float**: A floating-point value.
     * **bool**: A boolean value.
   * Lists: lists of values. When multiple list variables are defined, all combinations of their values are generated.
-  * Standard maps: key-value pairs, where the value can be referenced using the key.
-  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. When referencing a cluster map, the value corresponding to the current cluster is used. Differently from standard maps, a default value can also be specified.
+  * Standard maps: key-value pairs, where the value can be referenced using the key. Values can be either simple types or lists.
+  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. When referencing a cluster map, the value corresponding to the current cluster is used. Differently from standard maps, a default value can also be specified. Values can be either simple types or lists.
   * Special types:
     * `@dir path`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
     * `@file path`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
 
-There are also some predefined variables available in the job configuration file:
+Valid characters for variable names include the uppercase and lowercase letters (A-Z and a-z), the underscore _ and, except for the first character, the digits 0 through 9.
+
+When defining jobs, the following special variables are also available:
   * `work_dir`: The working directory where `sbatchman` was invoked.
   * `out_dir`: The output directory for the job's results.
   * `config_name`: The name of the cluster configuration being used.
@@ -212,14 +214,15 @@ There are also some predefined variables available in the job configuration file
 ### Substitutions
 Variables can be referenced in the following fields:
   - Clusters config file: `name`, `params`, `options`, `env`
+    Configuration names must be unique within each cluster.
+    > [!IMPORTANT]
+    > If you use variables that generate lists, make sure to include those variables in the `name` field as well, so that each configuration has a unique name.
   - Jobs config file: `command`, `preprocess`, `postprocess`, `name`, `cluster_config`
 
-**Substitution syntax:** `{var}` is replaced by the value of the variable `var`. For **standard** maps, the syntax `{map[key]}` is used. If `key` is a variable, it should be prefixed with `$`, e.g., `{map[$var]}`.
+**Substitution syntax:** To use variables in a field, use the `{var}` notation. For standard maps, use the syntax `{map[key]}`. If the key itself is a variable, prefix it with `$`, for example: `{map[$var]}`.
 
 ### Python Blocks
-When the simple logic offered by variables is not enough, Python blocks can be used to generate variables dynamically with the `{{ ... }}` syntax. A Python block can either return a single value or a list of values. If a list is returned, multiple job variants will be generated for each value in the list.
-
-To decide the order of the evaluation of variables, a DAG is constructed based on variable dependencies. If a DAG cannot be constructed due to circular dependencies, an error is raised.
+In the **job configuration file**, when basic variable substitution isn’t sufficient, Sbatchman allows you to embed Python code directly within the YAML file to generate dynamic values or lists. To include a Python block, wrap the code in `{{ ... }}` brackets within a field. Sbatchman variables can be referenced inside the python block by prefixing them with a `$` sign. A Python block can return either a single value or a list. If a list is returned, Sbatchman automatically creates multiple job variants - one for each value in the list, similar to how list variables work. Other return types are not supported.
 
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 

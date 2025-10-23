@@ -69,6 +69,9 @@ impl Database {
     Ok(config)
   }
 
+  /// Create a cluster along with its associated configurations
+  /// Leave cluster_id fields in configs as 0; they will be updated by this function
+  /// TODO: add option to allow overwriting existing clusters/configs
   pub fn create_cluster_with_configs(
     &mut self,
     cluster_config: &mut NewClusterConfig,

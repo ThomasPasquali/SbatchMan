@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use hashlink::LinkedHashMap;
 use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
 use crate::core::parsers::ParserError;
@@ -15,14 +16,30 @@ pub fn yaml_lookup<'a>(node: &'a YamlOwned, key: &str) -> Option<&'a YamlOwned> 
   None
 }
 
+pub fn to_string(yaml: &YamlOwned) -> Result<String, ParserError> {
+  match yaml.as_str() {
+    Some(s) => Ok(s.to_string()),
+    None => Err(ParserError::WrongType(
+      format!("{:?}", yaml),
+      "string".to_string(),
+    )),
+  }
+}
+
+pub fn to_sequence<'a>(yaml: &'a YamlOwned) -> Result<&'a Vec<YamlOwned>, ParserError> {
+  match yaml {
+    YamlOwned::Sequence(seq) => Ok(seq),
+    _ => Err(ParserError::WrongType(
+      format!("{:?}", yaml),
+      "sequence".to_string(),
+    )),
+  }
+}
+
 pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
   match yaml_lookup(yaml, key) {
-    Some(y) => match y.as_str() {
-      Some(s) => Ok(s.to_string()),
-      None => Err(ParserError::WrongType(
-        format!("{:?}", yaml),
-        "string".to_string(),
-      )),
+    Some(value) => {
+      to_string(value)
     },
     None => Err(ParserError::MissingKey(key.to_string())),
   }
@@ -33,11 +50,23 @@ pub fn lookup_sequence<'a>(
   key: &str,
 ) -> Result<&'a Vec<YamlOwned>, ParserError> {
   match yaml_lookup(yaml, key) {
+    Some(yaml) => {
+      to_sequence(yaml)
+    },
+    None => Err(ParserError::MissingKey(key.to_string())),
+  }
+}
+
+pub fn lookup_mapping<'a>(
+  yaml: &'a YamlOwned,
+  key: &str,
+) -> Result<&'a LinkedHashMap<YamlOwned, YamlOwned>, ParserError> {
+  match yaml_lookup(yaml, key) {
     Some(yaml) => match yaml {
-      YamlOwned::Sequence(seq) => Ok(seq),
+      YamlOwned::Mapping(map) => Ok(map),
       _ => Err(ParserError::WrongType(
         format!("{:?}", yaml),
-        "sequence".to_string(),
+        "mapping".to_string(),
       )),
     },
     None => Err(ParserError::MissingKey(key.to_string())),
