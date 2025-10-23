@@ -2,16 +2,15 @@ mod includes;
 mod jobs;
 mod utils;
 mod variables;
+mod cluster_configs;
 
 #[cfg(test)]
 mod tests;
 
-use log::debug;
-use std::path::Path;
 use thiserror::Error;
 
-use crate::core::{database::models::NewClusterConfig, parsers::includes::get_include_variables};
 pub use jobs::{ParsedJob, parse_jobs_from_file};
+pub use cluster_configs::parse_clusters_configs_from_file;
 
 #[derive(Error, Debug)]
 pub enum ParserError {
@@ -29,13 +28,15 @@ pub enum ParserError {
   EvalError(String),
   #[error("Missing Key: {0}")]
   MissingKey(String),
+  #[error("Cluster config file is empty!")]
+  EmptyClusterConfig,
   #[error("Wrong type for value \"{0}\", expected type {1}")]
   WrongType(String, String),
   #[error("Include error: {0} is neither a string nor a sequence")]
   IncludeWrongType(String),
 }
 
-pub fn parse_clusters_configs_from_file(
+/*pub fn parse_clusters_configs_from_file(
   root: &Path,
 ) -> Result<Vec<NewClusterConfig<'_>>, ParserError> {
   let variables = get_include_variables(root)?;
@@ -201,3 +202,4 @@ pub fn parse_clusters_configs_from_file(
 
   Ok(fully_expanded_clusters)*/
 }
+*/

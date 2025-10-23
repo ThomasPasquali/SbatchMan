@@ -1,7 +1,7 @@
-use crate::core::parsers::variables::{BasicVar, CompleteVar, Scalar};
+use crate::core::parsers::{includes::get_include_variables, variables::{BasicVar, CompleteVar, Scalar}};
 
 use super::*;
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 fn get_test_path(p: &str) -> PathBuf {
   PathBuf::from("src/core/parsers/tests/files").join(p)
