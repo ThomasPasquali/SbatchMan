@@ -33,7 +33,8 @@ fn push_file_to_include_list(
   Ok(())
 }
 
-/// Recursively get variables from included YAML files
+/// Collect all variables from included YAML files. The function performs a depth-first traversal of includes,
+/// ensuring that variables from earlier includes do not override those from later ones.
 pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable>, ParserError> {
   // Keep track of included files to prevent circular includes
   let mut included_files = vec!();
@@ -47,6 +48,15 @@ pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable
     debug!("Loading included variables from file: {:?}", &current_path);
 
     let yaml = load_yaml_from_file(&current_path)?;
+
+    // Parse variables from the current file
+    if let Some(yaml_variables) = yaml_lookup(&yaml, "variables") {
+      let new_variables = parse_variables(&yaml_variables)?;
+      // Merge new variables, without overriding existing ones
+      for (k, v) in new_variables {
+        variables.entry(k).or_insert(v);
+      }
+    }
   
     if let Some(node) = yaml_lookup(&yaml, "include") {
       if let Some(file) = node.as_str() {
@@ -66,15 +76,6 @@ pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable
       }
     }
     included_files.push(fs::canonicalize(current_path)?);
-
-    // After handling includes, parse variables from the current file
-    if let Some(yaml_variables) = yaml_lookup(&yaml, "variables") {
-      let new_variables = parse_variables(&yaml_variables)?;
-      // Merge new variables, without overriding existing ones
-      for (k, v) in new_variables {
-        variables.entry(k).or_insert(v);
-      }
-    }
   }
   
   Ok(variables)
