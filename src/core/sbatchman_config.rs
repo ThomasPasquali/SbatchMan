@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use crate::core::database::Database;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use crate::core::database::Database;
 
 #[cfg(test)]
 pub mod tests;
@@ -65,7 +65,8 @@ pub fn get_sbatchman_dir() -> Result<PathBuf, SbatchmanConfigError> {
 
 pub fn init_sbatchman_config(path: &PathBuf) -> Result<(), SbatchmanConfigError> {
   let config: SbatchmanConfig = SbatchmanConfig::default();
-  confy::store_path(path.join("sbatchman.conf"), config).map_err(|e| SbatchmanConfigError::ConfyError(e))?;
+  confy::store_path(path.join("sbatchman.conf"), config)
+    .map_err(|e| SbatchmanConfigError::ConfyError(e))?;
   Ok(())
 }
 
@@ -78,7 +79,10 @@ pub fn get_sbatchman_config(path: &PathBuf) -> Result<SbatchmanConfig, Sbatchman
   Ok(config)
 }
 
-pub fn set_sbatchman_config(path: &PathBuf, config: &SbatchmanConfig) -> Result<(), SbatchmanConfigError> {
+pub fn set_sbatchman_config(
+  path: &PathBuf,
+  config: &SbatchmanConfig,
+) -> Result<(), SbatchmanConfigError> {
   confy::store_path(path.join("sbatchman.conf"), config)
     .map_err(|e| SbatchmanConfigError::ConfyError(e))?;
   Ok(())

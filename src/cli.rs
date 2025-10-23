@@ -14,10 +14,17 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
   Init {},
-  Configure { file: String },
+  Configure {
+    file: String,
+  },
   Update {},
-  SetClusterName { name: String },
-  Launch { file: String, cluster_name: Option<String> },
+  SetClusterName {
+    name: String,
+  },
+  Launch {
+    file: String,
+    cluster_name: Option<String>,
+  },
 }
 
 pub fn main() {
@@ -47,7 +54,10 @@ pub fn main() {
           .expect("Failed to set cluster name in sbatchman configuration");
         println!("✅ Cluster name set to '{}' successfully!", name);
       }
-      Some(Commands::Launch { file, cluster_name: cluster }) => {
+      Some(Commands::Launch {
+        file,
+        cluster_name: cluster,
+      }) => {
         let mut sbatchman = core::Sbatchman::new().expect("Failed to initialize Sbatchman");
         sbatchman
           .launch_jobs_from_file(file, cluster)

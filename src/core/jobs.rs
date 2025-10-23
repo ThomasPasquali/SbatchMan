@@ -1,15 +1,26 @@
-mod slurm;
-mod pbs;
 mod local;
+mod pbs;
+mod slurm;
 mod r#virtual;
 use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::core::{database::{models::{Cluster, Config, Job, NewJob, Status}, Database}, parsers::ParsedJob};
+use crate::core::{
+  database::{
+    Database,
+    models::{Cluster, Config, Job, NewJob, Status},
+  },
+  parsers::ParsedJob,
+};
 
 trait SchedulerTrait {
-  fn create_job_script(&self, job: &Job, config: &Config, cluster: &Cluster) -> Result<String, JobError>;
+  fn create_job_script(
+    &self,
+    job: &Job,
+    config: &Config,
+    cluster: &Cluster,
+  ) -> Result<String, JobError>;
   fn launch_job(&self, job_script: &str) -> Result<(), JobError>;
   fn get_number_of_enqueued_jobs(&self) -> Result<usize, JobError> {
     Ok(0)
@@ -34,7 +45,11 @@ pub enum JobError {
   IoError(#[from] std::io::Error),
 }
 
-pub fn launch_jobs_from_file(path: &PathBuf, db: &mut Database, cluster_name: &str) -> Result<(), JobError> {
+pub fn launch_jobs_from_file(
+  path: &PathBuf,
+  db: &mut Database,
+  cluster_name: &str,
+) -> Result<(), JobError> {
   let jobs = crate::core::parsers::parse_jobs_from_file(path)?;
   let cluster = db.get_cluster_by_name(cluster_name)?;
   let configs = db.get_configs_by_cluster(&cluster)?;
@@ -42,29 +57,40 @@ pub fn launch_jobs_from_file(path: &PathBuf, db: &mut Database, cluster_name: &s
   if let Some(max_jobs) = cluster.max_jobs {
     let enqueued_jobs = get_scheduler(&cluster.scheduler).get_number_of_enqueued_jobs()?;
     // Number of jobs that can be enqueued without exceeding max_jobs
-    to_launch_really = std::cmp::min(to_launch_really, (max_jobs as usize).saturating_sub(enqueued_jobs));
+    to_launch_really = std::cmp::min(
+      to_launch_really,
+      (max_jobs as usize).saturating_sub(enqueued_jobs),
+    );
   }
   let mut iter = jobs.iter();
   // Launch jobs up to the allowed limit
   while to_launch_really > 0 {
     let job = iter.next().unwrap();
-    let config = configs.get(job.config_name).ok_or(
-      JobError::ConfigNotFound(job.config_name.to_string())
-    )?;
+    let config = configs
+      .get(job.config_name)
+      .ok_or(JobError::ConfigNotFound(job.config_name.to_string()))?;
     launch_job(job, config, &cluster, db, path, false)?;
+    to_launch_really -= 1;
   }
   // Remaining jobs go to virtual queue
   while let Some(job) = iter.next() {
-    let config = configs.get(job.config_name).ok_or(
-      JobError::ConfigNotFound(job.config_name.to_string())
-    )?;
+    let config = configs
+      .get(job.config_name)
+      .ok_or(JobError::ConfigNotFound(job.config_name.to_string()))?;
     launch_job(job, config, &cluster, db, path, true)?;
   }
 
   return Ok(());
 }
 
-fn launch_job(job: &ParsedJob, config: &Config, cluster: &Cluster, db: &mut Database, path: &PathBuf, virtual_queue: bool) -> Result<(), JobError> {
+fn launch_job(
+  job: &ParsedJob,
+  config: &Config,
+  cluster: &Cluster,
+  db: &mut Database,
+  path: &PathBuf,
+  virtual_queue: bool,
+) -> Result<(), JobError> {
   let new_job = NewJob {
     job_name: job.job_name,
     command: job.command,

@@ -49,10 +49,7 @@ impl Database {
     Ok(Database { conn })
   }
 
-  pub fn create_cluster(
-    &mut self,
-    new_cluster: &NewCluster,
-  ) -> Result<Cluster, StorageError> {
+  pub fn create_cluster(&mut self, new_cluster: &NewCluster) -> Result<Cluster, StorageError> {
     let cluster = diesel::insert_into(clusters::table)
       .values(new_cluster)
       .returning(Cluster::as_returning())
@@ -61,12 +58,9 @@ impl Database {
     Ok(cluster)
   }
 
-  pub fn create_cluster_config(
-    &mut self,
-    new_config: &NewConfig,
-  ) -> Result<Config, StorageError> {
+  pub fn create_cluster_config(&mut self, new_config: &NewConfig) -> Result<Config, StorageError> {
     use self::schema::configs;
-  
+
     let config = diesel::insert_into(configs::table)
       .values(new_config)
       .returning(Config::as_returning())
@@ -74,26 +68,26 @@ impl Database {
       .map_err(|e| StorageError::OperationError(e.to_string()))?;
     Ok(config)
   }
-  
+
   pub fn create_cluster_with_configs(
     &mut self,
     cluster_config: &mut NewClusterConfig,
   ) -> Result<(), StorageError> {
     let cluster = self.create_cluster(&cluster_config.cluster)?;
-  
+
     cluster_config.configs.iter_mut().for_each(|config| {
       config.cluster_id = cluster.id;
       let _ = self.create_cluster_config(config);
     });
     Ok(())
   }
-  
+
   pub fn create_job(
     &mut self,
     new_job: &models::NewJob,
   ) -> Result<super::database::models::Job, StorageError> {
     use self::schema::jobs;
-  
+
     let job = diesel::insert_into(jobs::table)
       .values(new_job)
       .returning(super::database::models::Job::as_returning())
@@ -102,13 +96,9 @@ impl Database {
     Ok(job)
   }
 
-  pub fn update_job_path(
-    &mut self,
-    id: i32,
-    directory: &str,
-  ) -> Result<(), StorageError> {
+  pub fn update_job_path(&mut self, id: i32, directory: &str) -> Result<(), StorageError> {
     use self::schema::jobs::dsl as jobs_dsl;
-  
+
     diesel::update(jobs_dsl::jobs.filter(jobs_dsl::id.eq(id)))
       .set(jobs_dsl::directory.eq(directory))
       .execute(&mut self.conn)
@@ -116,13 +106,9 @@ impl Database {
     Ok(())
   }
 
-  pub fn update_job_status(
-    &mut self,
-    id: i32,
-    new_status: &Status,
-  ) -> Result<(), StorageError> {
+  pub fn update_job_status(&mut self, id: i32, new_status: &Status) -> Result<(), StorageError> {
     use self::schema::jobs::dsl as jobs_dsl;
-  
+
     diesel::update(jobs_dsl::jobs.filter(jobs_dsl::id.eq(id)))
       .set(jobs_dsl::status.eq(new_status))
       .execute(&mut self.conn)
@@ -139,13 +125,12 @@ impl Database {
       .map_err(|e| StorageError::OperationError(e.to_string()))?;
     Ok(cluster)
   }
-  
+
   /// Retrieve all configs for a given cluster as a HashMap
   pub fn get_configs_by_cluster(
     &mut self,
     cluster: &Cluster,
   ) -> Result<HashMap<String, Config>, StorageError> {
-
     let configs_list = Config::belonging_to(&cluster)
       .select(Config::as_select())
       .load(&mut self.conn)

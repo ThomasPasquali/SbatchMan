@@ -1,7 +1,7 @@
-mod sbatchman_config;
-mod parsers;
 mod database;
 mod jobs;
+mod parsers;
+mod sbatchman_config;
 
 #[cfg(test)]
 mod tests;
@@ -24,7 +24,9 @@ pub enum SbatchmanError {
   ParserError(#[from] parsers::ParserError),
   #[error("Config Error: {0}")]
   ConfigError(#[from] sbatchman_config::SbatchmanConfigError),
-  #[error("No cluster set. Please set a cluster before launching jobs using `set-cluster` command.")]
+  #[error(
+    "No cluster set. Please set a cluster before launching jobs using `set-cluster` command."
+  )]
   NoClusterSet,
   #[error("Job Error: {0}")]
   JobError(#[from] jobs::JobError),
@@ -57,14 +59,26 @@ impl Sbatchman {
       self.db.create_cluster_with_configs(cluster_config)?;
     }
 
-    return Ok(());
+    Ok(())
   }
 
-  pub fn launch_jobs_from_file(&mut self, path: &str, cluster_name: &Option<String>) -> Result<(), SbatchmanError> {
+  pub fn launch_jobs_from_file(
+    &mut self,
+    path: &str,
+    cluster_name: &Option<String>,
+  ) -> Result<(), SbatchmanError> {
     let cluster_name = match &cluster_name {
       Some(name) => name,
-      None => self.config.cluster_name.as_ref().ok_or(SbatchmanError::NoClusterSet)?
+      None => self
+        .config
+        .cluster_name
+        .as_ref()
+        .ok_or(SbatchmanError::NoClusterSet)?,
     };
-    Ok(jobs::launch_jobs_from_file(&PathBuf::from(path), &mut self.db, cluster_name)?)
+    Ok(jobs::launch_jobs_from_file(
+      &PathBuf::from(path),
+      &mut self.db,
+      cluster_name,
+    )?)
   }
 }

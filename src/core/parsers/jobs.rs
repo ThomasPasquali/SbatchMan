@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::core::{parsers::ParserError};
+use crate::core::parsers::ParserError;
 
 pub struct ParsedJob<'a> {
   pub job_name: &'a str,

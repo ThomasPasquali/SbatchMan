@@ -19,17 +19,26 @@ pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
   match yaml_lookup(yaml, key) {
     Some(y) => match y.as_str() {
       Some(s) => Ok(s.to_string()),
-      None => Err(ParserError::WrongType(format!("{:?}", yaml), "string".to_string())),
+      None => Err(ParserError::WrongType(
+        format!("{:?}", yaml),
+        "string".to_string(),
+      )),
     },
     None => Err(ParserError::MissingKey(key.to_string())),
   }
 }
 
-pub fn lookup_sequence<'a>(yaml: &'a YamlOwned, key: &str) -> Result<&'a Vec<YamlOwned>, ParserError> {
+pub fn lookup_sequence<'a>(
+  yaml: &'a YamlOwned,
+  key: &str,
+) -> Result<&'a Vec<YamlOwned>, ParserError> {
   match yaml_lookup(yaml, key) {
     Some(yaml) => match yaml {
       YamlOwned::Sequence(seq) => Ok(seq),
-      _ => Err(ParserError::WrongType(format!("{:?}", yaml), "sequence".to_string())),
+      _ => Err(ParserError::WrongType(
+        format!("{:?}", yaml),
+        "sequence".to_string(),
+      )),
     },
     None => Err(ParserError::MissingKey(key.to_string())),
   }

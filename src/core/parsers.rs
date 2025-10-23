@@ -1,12 +1,12 @@
+mod includes;
 mod jobs;
 mod utils;
 mod variables;
-mod includes;
 
 #[cfg(test)]
 mod tests;
 
-use log::{debug};
+use log::debug;
 use std::path::Path;
 use thiserror::Error;
 
@@ -19,7 +19,9 @@ pub enum ParserError {
   IoError(#[from] std::io::Error),
   #[error("YAML parsing failed: {0}")]
   YamlParseFailed(#[from] saphyr::ScanError),
-  #[error("The file {0} is being included multiple times. Check if it has been included from multiple files or if there is a circular include (ex. FILE 1 -> FILE 2 -> FILE 1).")]
+  #[error(
+    "The file {0} is being included multiple times. Check if it has been included from multiple files or if there is a circular include (ex. FILE 1 -> FILE 2 -> FILE 1)."
+  )]
   CircularInclude(String),
   #[error("YAML file is empty!")]
   YamlEmpty,
@@ -33,7 +35,9 @@ pub enum ParserError {
   IncludeWrongType(String),
 }
 
-pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig<'_>>, ParserError> {
+pub fn parse_clusters_configs_from_file(
+  root: &Path,
+) -> Result<Vec<NewClusterConfig<'_>>, ParserError> {
   let variables = get_include_variables(root)?;
 
   debug!("Parsed variables: {:?}", variables);
@@ -41,7 +45,7 @@ pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterCon
 
   // FIXME
   // panic!("Not tested from here on!!!");
-/*
+  /*
   // Top-level variables collection
   let variables_map = collect_variables(&yaml, &base_dir)?;
 

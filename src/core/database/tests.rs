@@ -1,14 +1,12 @@
 use crate::core::{
-  sbatchman_config::tests::init_sbatchman_for_tests,
   database::{models::*, *},
+  sbatchman_config::tests::init_sbatchman_for_tests,
 };
 
 #[test]
 fn get_set_config() {
   let dir = init_sbatchman_for_tests();
-  let mut db = Database::new(
-    &dir.path().to_path_buf(),
-  ).unwrap();
+  let mut db = Database::new(&dir.path().to_path_buf()).unwrap();
   let new_cluster = NewCluster {
     cluster_name: "test_cluster",
     scheduler: Scheduler::Local,
@@ -33,9 +31,7 @@ fn get_set_config() {
 #[test]
 fn create_cluster_same_name() {
   let dir = init_sbatchman_for_tests();
-  let mut db = Database::new(
-    &dir.path().to_path_buf(),
-  ).unwrap();
+  let mut db = Database::new(&dir.path().to_path_buf()).unwrap();
 
   let new_cluster = NewCluster {
     cluster_name: "duplicate_cluster",

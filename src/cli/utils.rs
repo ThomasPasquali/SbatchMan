@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::{env, fs, os::unix::fs::PermissionsExt, process::Command};
-use anyhow::{Context, Result};
 
 pub fn update() -> Result<()> {
   let repo = "ThomasPasquali/sbatchman";

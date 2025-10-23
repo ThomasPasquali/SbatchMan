@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use log::debug;
-use crate::core::parsers::utils::{load_yaml_from_file, yaml_lookup};
-use crate::core::parsers::variables::{parse_variables, Variable};
 use crate::core::parsers::ParserError;
+use crate::core::parsers::utils::{load_yaml_from_file, yaml_lookup};
+use crate::core::parsers::variables::{Variable, parse_variables};
+use log::debug;
 
 /// Push a file to the include list, checking for circular includes
 fn push_file_to_include_list(
@@ -37,12 +37,12 @@ fn push_file_to_include_list(
 /// ensuring that variables from earlier includes do not override those from later ones.
 pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable>, ParserError> {
   // Keep track of included files to prevent circular includes
-  let mut included_files = vec!();
+  let mut included_files = vec![];
   // Start with the initial file
-  let mut to_include = vec!(fs::canonicalize(root)?);
+  let mut to_include = vec![fs::canonicalize(root)?];
   // Final variables collection
   let mut variables = HashMap::new();
-  
+
   // Process the include stack
   while let Some(current_path) = to_include.pop() {
     debug!("Loading included variables from file: {:?}", &current_path);
@@ -57,7 +57,7 @@ pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable
         variables.entry(k).or_insert(v);
       }
     }
-  
+
     if let Some(node) = yaml_lookup(&yaml, "include") {
       if let Some(file) = node.as_str() {
         // Single include
@@ -77,6 +77,6 @@ pub fn get_include_variables<'a>(root: &Path) -> Result<HashMap<String, Variable
     }
     included_files.push(fs::canonicalize(current_path)?);
   }
-  
+
   Ok(variables)
 }

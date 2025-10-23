@@ -6,7 +6,12 @@ use super::{Cluster, Config, JobError};
 pub struct VirtualScheduler;
 
 impl SchedulerTrait for VirtualScheduler {
-  fn create_job_script(&self, job: &Job, config: &Config, cluster: &Cluster) -> Result<String, JobError> {
+  fn create_job_script(
+    &self,
+    job: &Job,
+    config: &Config,
+    cluster: &Cluster,
+  ) -> Result<String, JobError> {
     // FIXME implement virtual job script creation logic
     Ok(String::new())
   }

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use crate::core::parsers::ParserError;
+use crate::core::parsers::utils::value_from_str;
 use hashlink::LinkedHashMap;
 use saphyr::{ScalarOwned as YamlOwnedScalar, YamlOwned};
-use crate::core::parsers::utils::value_from_str;
-use crate::core::parsers::ParserError;
 
 #[derive(Debug, PartialEq)]
 pub enum Scalar {
@@ -65,7 +65,7 @@ fn parse_scalar<'a>(s: &'a YamlOwnedScalar) -> Result<Scalar, ParserError> {
       } else {
         Ok(Scalar::String(s.to_string()))
       }
-    },
+    }
     YamlOwnedScalar::Integer(i) => Ok(Scalar::Int(*i)),
     YamlOwnedScalar::FloatingPoint(f) => Ok(Scalar::Float(**f)),
     YamlOwnedScalar::Boolean(b) => Ok(Scalar::Bool(*b)),
@@ -82,7 +82,7 @@ fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, Parser
     match item {
       YamlOwned::Value(s) => {
         scalars.push(parse_scalar(s)?);
-      },
+      }
       _ => {
         return Err(wrong_type_err!(item, "scalar"));
       }
@@ -131,9 +131,7 @@ macro_rules! yaml_str {
 }
 
 /// Main function to parse variables from a YAML node
-pub fn parse_variables(
-  yaml: &YamlOwned,
-) -> Result<HashMap<String, Variable>, ParserError> {
+pub fn parse_variables(yaml: &YamlOwned) -> Result<HashMap<String, Variable>, ParserError> {
   let mut variables: HashMap<String, Variable> = HashMap::new();
   // Ensure the top-level YAML is a mapping
   let map = yaml.as_mapping().ok_or(wrong_type_err!(yaml, "mapping"))?;
@@ -144,33 +142,40 @@ pub fn parse_variables(
       name: k.to_string(),
       // Determine the type of variable based on the YAML object
       contents: match v {
-        YamlOwned::Value(s) => {
-          parse_scalar(s).map(CompleteVar::Scalar)?
-        },
-        YamlOwned::Sequence(seq) => {
-          parse_sequence_of_scalars(seq).map(CompleteVar::List)?
-        },
+        YamlOwned::Value(s) => parse_scalar(s).map(CompleteVar::Scalar)?,
+        YamlOwned::Sequence(seq) => parse_sequence_of_scalars(seq).map(CompleteVar::List)?,
         YamlOwned::Mapping(map) => {
           // Check for "per_cluster" key to determine if it's a ClusterMap
           if let Some(cluster_map) = map.get(&yaml_str!("per_cluster")) {
             // Look up the "default" key, parse it if found, and handle possible errors
-            let default = map.get(&yaml_str!("default")).map(parse_basic_var).transpose()?;
+            let default = map
+              .get(&yaml_str!("default"))
+              .map(parse_basic_var)
+              .transpose()?;
             // Parse the "per_cluster" mapping and construct the ClusterMap
             CompleteVar::ClusterMap(ClusterMap {
               default,
-              per_cluster: parse_mapping(cluster_map.as_mapping().ok_or(wrong_type_err!(map, "map"))?)?,
+              per_cluster: parse_mapping(
+                cluster_map
+                  .as_mapping()
+                  .ok_or(wrong_type_err!(map, "map"))?,
+              )?,
             })
           } else if let Some(map) = map.get(&yaml_str!("map")) {
             // Parse as a standard mapping variable
-            parse_mapping(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?).map(CompleteVar::StandardMap)?
+            parse_mapping(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?)
+              .map(CompleteVar::StandardMap)?
           } else {
-            return Err(wrong_type_err!(v, "mapping with 'per_cluster' or 'map' key"));
+            return Err(wrong_type_err!(
+              v,
+              "mapping with 'per_cluster' or 'map' key"
+            ));
           }
         }
         _ => {
           return Err(wrong_type_err!(v, "scalar, list, or mapping"));
         }
-      }
+      },
     };
     variables.insert(v.name.clone(), v);
   }
