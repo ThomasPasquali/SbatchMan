@@ -1,16 +1,16 @@
+mod cluster_configs;
 mod includes;
 mod jobs;
 mod utils;
 mod variables;
-mod cluster_configs;
 
 #[cfg(test)]
 mod tests;
 
 use thiserror::Error;
 
-pub use jobs::{ParsedJob, parse_jobs_from_file};
 pub use cluster_configs::parse_clusters_configs_from_file;
+pub use jobs::{ParsedJob, parse_jobs_from_file};
 
 #[derive(Error, Debug)]
 pub enum ParserError {

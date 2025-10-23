@@ -1,8 +1,12 @@
 mod local;
 mod pbs;
 mod slurm;
+mod utils;
 mod r#virtual;
 use std::path::PathBuf;
+
+#[cfg(test)]
+mod tests;
 
 use thiserror::Error;
 
@@ -43,6 +47,16 @@ pub enum JobError {
   ConfigNotFound(String),
   #[error("IO Error: {0}")]
   IoError(#[from] std::io::Error),
+  #[error("Invalid Time Format: {0}")]
+  InvalidTimeFormat(String),
+  #[error("Job Spawn: {0}")]
+  SpawnError(String),
+  #[error("Job Wait: {0}")]
+  WaitError(String),
+  #[error("Job Timeout: {0}")]
+  Timeout(String),
+  #[error("Job Execution: {0}")]
+  ExecutionFailed(String),
 }
 
 pub fn launch_jobs_from_file(

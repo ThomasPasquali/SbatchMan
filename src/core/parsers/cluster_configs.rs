@@ -2,19 +2,32 @@ use std::path::Path;
 
 use log::debug;
 
-use crate::core::{database::{models::{NewCluster, NewClusterConfig}, schema::configs}, parsers::{includes::get_include_variables, utils::{load_yaml_from_file, lookup_mapping, to_sequence, to_string}, ParserError}};
+use crate::core::{
+  database::{
+    models::{NewCluster, NewClusterConfig},
+    schema::configs,
+  },
+  parsers::{
+    ParserError,
+    includes::get_include_variables,
+    utils::{load_yaml_from_file, lookup_mapping, to_sequence, to_string},
+  },
+};
 
-fn parse_cluster_configs<'a, 'b>(cluster_name: &'a saphyr::YamlOwned, configs: &'a saphyr::YamlOwned) -> Result<Vec<NewClusterConfig<'b>>, ParserError> {
+fn parse_cluster_configs<'a, 'b>(
+  cluster_name: &'a saphyr::YamlOwned,
+  configs: &'a saphyr::YamlOwned,
+) -> Result<Vec<NewClusterConfig<'b>>, ParserError> {
   /*let cluster_name = to_string(&cluster_name)?;
   let parsed_cluster = NewCluster {
     cluster_name: &cluster_name,
-    scheduler: 
+    scheduler:
 
   };
   let configs = to_sequence(configs)?;
   for config in configs {
     let parsed_config = NewClusterConfig {
-      
+
     };
   }*/
   // TODO: implement parsing logic here

@@ -61,9 +61,7 @@ Here’s your markdown table transformed into a clean unordered list:
   *Return type:* `Result<()>`
 
 ### Generated script
-A generated bash script is created for each job to handle preprocessing, job submission, and postprocessing. This script is stored in the job's directory and executed when the job is run. The script should try to update the job status in the database directly using specific `sbatchman` commands.
-
-Output status updates should also be written to a designated log file that `sbatchman` monitors to track job progress.
+A generated bash script is created for each job to handle metadata and job submission, and postprocessing. This script is stored in the job's directory and executed when the job is run. The job directory will contain a log files with all the job metadata and updates (e.g. job status) this shall also contain timestamps so, for example, the waiting time and job duration can be computed (to the millisecond). In general, these logs will allow to reconstruct the whole database if it gets corrupted.
 
 ### TUI Frontend
 

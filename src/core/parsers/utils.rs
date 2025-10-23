@@ -38,9 +38,7 @@ pub fn to_sequence<'a>(yaml: &'a YamlOwned) -> Result<&'a Vec<YamlOwned>, Parser
 
 pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
   match yaml_lookup(yaml, key) {
-    Some(value) => {
-      to_string(value)
-    },
+    Some(value) => to_string(value),
     None => Err(ParserError::MissingKey(key.to_string())),
   }
 }
@@ -50,9 +48,7 @@ pub fn lookup_sequence<'a>(
   key: &str,
 ) -> Result<&'a Vec<YamlOwned>, ParserError> {
   match yaml_lookup(yaml, key) {
-    Some(yaml) => {
-      to_sequence(yaml)
-    },
+    Some(yaml) => to_sequence(yaml),
     None => Err(ParserError::MissingKey(key.to_string())),
   }
 }
