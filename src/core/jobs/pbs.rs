@@ -15,8 +15,7 @@ impl SchedulerTrait for PbsScheduler {
     Ok(String::new())
   }
 
-  fn launch_job(&self, job_script: &str) -> Result<(), JobError> {
-    // FIXME implement PBS job launch logic
+  fn launch_job(&self, job: &mut Job, config: &Config, cluster: &Cluster) -> Result<(), JobError> {
     Ok(())
   }
 

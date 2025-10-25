@@ -15,7 +15,7 @@ impl SchedulerTrait for SlurmScheduler {
     Ok(String::new())
   }
 
-  fn launch_job(&self, job_script: &str) -> Result<(), JobError> {
+  fn launch_job(&self, job: &mut Job, config: &Config, cluster: &Cluster) -> Result<(), JobError> {
     // FIXME implement PBS job launch logic
     Ok(())
   }

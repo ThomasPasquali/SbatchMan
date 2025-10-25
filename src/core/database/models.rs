@@ -7,6 +7,7 @@ use diesel::{
   serialize::{Output, ToSql},
   sql_types::Integer,
 };
+use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
 #[repr(i32)]
@@ -92,15 +93,17 @@ pub struct NewClusterConfig<'a> {
 }
 
 #[repr(i32)]
-#[derive(FromSqlRow, Debug, AsExpression, EnumString, PartialEq)]
+#[derive(FromSqlRow, Debug, AsExpression, EnumString, PartialEq, Serialize, Deserialize, Clone)]
 #[diesel(sql_type = Integer)]
 pub enum Status {
-  Created,      // Job created but not yet submitted
-  VirtualQueue, // Job in virtual queue waiting for submission
-  Queued,       // Job submitted and waiting in scheduler queue
-  Running,      // Job is currently running
-  Completed,    // Job completed successfully
-  Failed,       // Job failed
+  Created,          // Job created but not yet submitted
+  VirtualQueue,     // Job in virtual queue waiting for submission
+  Queued,           // Job submitted and waiting in scheduler queue
+  Running,          // Job is currently running
+  Completed,        // Job completed successfully
+  Failed,           // Job failed
+  Timeout,          // Job timed-out
+  FailedSubmission, // Job submission failed
 }
 
 impl<DB> FromSql<Integer, DB> for Status
@@ -134,11 +137,13 @@ where
       Status::Running => 3.to_sql(out),
       Status::Completed => 4.to_sql(out),
       Status::Failed => 5.to_sql(out),
+      Status::Timeout => 6.to_sql(out),
+      Status::FailedSubmission => 7.to_sql(out),
     }
   }
 }
 
-#[derive(Queryable, Selectable, Associations, Debug, PartialEq)]
+#[derive(Queryable, Selectable, Associations, Debug, PartialEq, Serialize, Deserialize, Clone)]
 #[diesel(belongs_to(Config))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(table_name = jobs)]
@@ -154,6 +159,7 @@ pub struct Job {
   pub end_time: Option<i32>,
   pub preprocess: Option<String>,
   pub postprocess: Option<String>,
+  // pub exit_code: Option<i32>,
   pub archived: Option<i32>,
   pub variables: serde_json::Value,
 }

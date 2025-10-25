@@ -1,5 +1,7 @@
+use chrono::{DateTime, Utc};
 use serde_json::json;
 
+use crate::core::database::models::Status;
 use crate::core::jobs::utils::*;
 use crate::core::{database::models::Job, jobs::SchedulerTrait};
 
@@ -14,51 +16,26 @@ pub struct LocalScheduler;
 
 impl LocalScheduler {
   /// Submit a job locally with optional timeout
-  /// Returns (pid, timed_out)
+  /// Returns (pid, exit_code, timed_out, start_time, end_time, duration_ms)
   fn local_submit(
     &self,
     script_path: &Path,
     job_dir: &Path,
     log_path: &Path,
     time_limit: Option<&str>,
-    job: &Job,
-    config: &Config,
-    cluster: &Cluster,
-  ) -> Result<(u32, bool), JobError> {
+  ) -> Result<(u32, Option<i32>, bool, DateTime<Utc>, DateTime<Utc>, i64), JobError> {
     let stdout_log = job_dir.join("stdout.log");
     let stderr_log = job_dir.join("stderr.log");
 
-    // Log job start
-    write_log_entry(
-      log_path,
-      "job_execution_start",
-      job,
-      config,
-      cluster,
-      Some(json!({
-        "script_path": script_path.to_str(),
-        "time_limit": time_limit,
-      })),
-    )?;
-
-    let start_time = get_timestamp();
-
-    let stdout_file = File::create(&stdout_log).map_err(|e| {
-      JobError::IoError(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Failed to create stdout log: {}", e),
-      ))
-    })?;
-    let stderr_file = File::create(&stderr_log).map_err(|e| {
-      JobError::IoError(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Failed to create stderr log: {}", e),
-      ))
-    })?;
+    let stdout_file = File::create(&stdout_log)
+      .map_err(|e| map_err_adding_description(e, "Failed to create stdout log: {}"))?;
+    let stderr_file = File::create(&stderr_log)
+      .map_err(|e| map_err_adding_description(e, "Failed to create stderr log: {}"))?;
 
     let mut timed_out = false;
     let pid: u32;
     let exit_code: Option<i32>;
+    let mut start_time: Option<DateTime<Utc>> = None;
 
     if let Some(time_str) = time_limit {
       // Use timeout command if time limit is specified
@@ -77,19 +54,11 @@ impl LocalScheduler {
         .map_err(|e| JobError::SpawnError(format!("Failed to spawn process: {}", e)))?;
 
       pid = child.id();
-
-      // Log process spawned
+      start_time = Some(get_timestamp());
       write_log_entry(
-        log_path,
-        "process_spawned",
-        job,
-        config,
-        cluster,
-        Some(json!({
-          "pid": pid,
-          "with_timeout": true,
-          "timeout_seconds": timeout_seconds,
-        })),
+        &log_path,
+        JobLog::StatusUpdate(Status::Running),
+        Some(json!({"start_time": start_time.unwrap(), "timeout_seconds": timeout_seconds})),
       )?;
 
       let output = child
@@ -115,18 +84,11 @@ impl LocalScheduler {
         .map_err(|e| JobError::SpawnError(format!("Failed to spawn process: {}", e)))?;
 
       pid = child.id();
-
-      // Log process spawned
+      start_time = Some(get_timestamp());
       write_log_entry(
-        log_path,
-        "process_spawned",
-        job,
-        config,
-        cluster,
-        Some(json!({
-          "pid": pid,
-          "with_timeout": false,
-        })),
+        &log_path,
+        JobLog::StatusUpdate(Status::Running),
+        Some(json!({"start_time": start_time.unwrap(), "timeout_seconds": 0})),
       )?;
 
       let output = child
@@ -137,26 +99,10 @@ impl LocalScheduler {
     }
 
     let end_time = get_timestamp();
+    let start_time = start_time.unwrap();
     let duration_ms = (end_time - start_time).num_milliseconds();
 
-    // Log job completion
-    write_log_entry(
-      log_path,
-      "job_execution_end",
-      job,
-      config,
-      cluster,
-      Some(json!({
-        "pid": pid,
-        "exit_code": exit_code,
-        "timed_out": timed_out,
-        "duration_ms": duration_ms,
-        "start_time": start_time.to_rfc3339(),
-        "end_time": end_time.to_rfc3339(),
-      })),
-    )?;
-
-    Ok((pid, timed_out))
+    Ok((pid, exit_code, timed_out, start_time, end_time, duration_ms))
   }
 }
 
@@ -167,24 +113,10 @@ impl SchedulerTrait for LocalScheduler {
     config: &Config,
     cluster: &Cluster,
   ) -> Result<String, JobError> {
-    let job_dir = PathBuf::from(&job.directory);
-    let (_, log_path) = prepare_job_directory(&job_dir)?;
-
-    // Log job script creation
-    write_log_entry(
-      &log_path,
-      "job_script_creation_start",
-      job,
-      config,
-      cluster,
-      None,
-    )?;
-
     let mut script = String::new();
 
     // Add script header
     script.push_str(&generate_script_header(job, config, cluster));
-    script.push_str("# Local execution script\n\n");
 
     // Add environment variables
     add_environment_variables(&mut script, config);
@@ -192,67 +124,64 @@ impl SchedulerTrait for LocalScheduler {
     // Add job commands (preprocess, main, postprocess)
     add_job_commands(&mut script, job);
 
-    // Log job script created
-    write_log_entry(
-      &log_path,
-      "job_script_created",
-      job,
-      config,
-      cluster,
-      Some(json!({
-        "script_length": script.len(),
-      })),
-    )?;
-
     Ok(script)
   }
 
-  fn launch_job(&self, job_script: &str) -> Result<(), JobError> {
-    // Note: This method signature doesn't provide job/config/cluster info
-    // You may want to modify the SchedulerTrait to include these parameters
-    // For now, we'll create a basic implementation
+  fn launch_job(&self, job: &mut Job, config: &Config, cluster: &Cluster) -> Result<(), JobError> {
+    let job_dir = PathBuf::from(&job.directory);
+    let (script_path, log_path) = prepare_job_directory(&job_dir)?;
+    println!(
+      "{}\n{}",
+      script_path.to_str().unwrap(),
+      log_path.to_str().unwrap()
+    );
 
-    let temp_dir = std::env::temp_dir();
-    let script_path = temp_dir.join(format!("job_{}.sh", std::process::id()));
+    write_log_entry(&log_path, JobLog::Metadata(job.clone()), None)?;
 
-    let mut file = File::create(&script_path).map_err(|e| {
-      JobError::IoError(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Failed to create script file: {}", e),
-      ))
-    })?;
+    // Create the job script
+    let script_content = self.create_job_script(job, config, cluster)?;
+    println!("==== SCRIPT\n{}\n==== SCRIPT END", script_content);
 
-    file.write_all(job_script.as_bytes()).map_err(|e| {
-      JobError::IoError(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Failed to write script: {}", e),
-      ))
-    })?;
+    // Save script to job directory
+    let mut file = File::create(&script_path)
+      .map_err(|e| map_err_adding_description(e, "Failed to create script file: {}"))?;
+
+    file
+      .write_all(script_content.as_bytes())
+      .map_err(|e| map_err_adding_description(e, "Failed to write script: {}"))?;
 
     // Make script executable
     make_script_executable(&script_path)?;
 
-    // Launch the job
-    let mut command = Command::new("bash");
-    command.arg(&script_path);
+    write_log_entry(&log_path, JobLog::StatusUpdate(Status::Created), None)?;
 
-    let child = command
-      .spawn()
-      .map_err(|e| JobError::SpawnError(format!("Failed to spawn process: {}", e)))?;
+    // Extract time limit from config flags if present
+    let time_limit = config.flags.get("time").and_then(|v| v.as_str());
 
-    let output = child
-      .wait_with_output()
-      .map_err(|e| JobError::WaitError(format!("Failed to wait for process: {}", e)))?;
+    // Launch the job with full logging
+    let (pid, exit_code, timed_out, start_time, end_time, duration_ms) =
+      self.local_submit(&script_path, &job_dir, &log_path, time_limit)?;
 
-    // Clean up temporary script
-    let _ = std::fs::remove_file(&script_path);
-
-    if !output.status.success() {
-      return Err(JobError::ExecutionFailed(format!(
-        "Job failed with exit code: {:?}",
-        output.status.code()
-      )));
-    }
+    let additional_data = Some(json!({
+      "pid": pid,
+      "exit_code": exit_code,
+      "start_time": start_time,
+      "end_time": end_time,
+      "duration_ms": duration_ms
+    }));
+    // FIXME should be done better
+    let status = if timed_out {
+      Status::Timeout
+    } else if let Some(code) = exit_code {
+      if code == 0 {
+        Status::Completed
+      } else {
+        Status::Failed
+      }
+    } else {
+      Status::FailedSubmission // FIXME Especially this
+    };
+    write_log_entry(&log_path, JobLog::StatusUpdate(status), additional_data)?;
 
     Ok(())
   }
@@ -260,106 +189,5 @@ impl SchedulerTrait for LocalScheduler {
   fn get_number_of_enqueued_jobs(&self) -> Result<usize, JobError> {
     // For local scheduler, there's no queue - jobs run immediately
     Ok(0)
-  }
-}
-
-// Additional method that should be added to SchedulerTrait or called separately
-impl LocalScheduler {
-  /// Launch a job with full context for proper logging
-  pub fn launch_job_with_context(
-    &self,
-    job: &Job,
-    config: &Config,
-    cluster: &Cluster,
-  ) -> Result<(), JobError> {
-    let job_dir = PathBuf::from(&job.directory);
-    let (script_path, log_path) = prepare_job_directory(&job_dir)?;
-
-    // Log job submission
-    write_log_entry(
-      &log_path,
-      "job_submission",
-      job,
-      config,
-      cluster,
-      Some(json!({
-        "submission_time": get_timestamp().to_rfc3339(),
-      })),
-    )?;
-
-    // Create the job script
-    let script_content = self.create_job_script(job, config, cluster)?;
-
-    // Save script to job directory
-    let mut file = File::create(&script_path).map_err(|e| {
-      JobError::IoError(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Failed to create script file: {}", e),
-      ))
-    })?;
-
-    file.write_all(script_content.as_bytes()).map_err(|e| {
-      JobError::IoError(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Failed to write script: {}", e),
-      ))
-    })?;
-
-    // Log script saved
-    write_log_entry(
-      &log_path,
-      "job_script_saved",
-      job,
-      config,
-      cluster,
-      Some(json!({
-        "script_path": script_path.to_str(),
-      })),
-    )?;
-
-    // Make script executable
-    make_script_executable(&script_path)?;
-
-    // Extract time limit from config flags if present
-    let time_limit = config.flags.get("time").and_then(|v| v.as_str());
-
-    // Launch the job with full logging
-    let (pid, timed_out) = self.local_submit(
-      &script_path,
-      &job_dir,
-      &log_path,
-      time_limit,
-      job,
-      config,
-      cluster,
-    )?;
-
-    if timed_out {
-      write_log_entry(
-        &log_path,
-        "job_timeout",
-        job,
-        config,
-        cluster,
-        Some(json!({
-          "pid": pid,
-        })),
-      )?;
-      return Err(JobError::Timeout(format!("Job timed out (PID: {})", pid)));
-    }
-
-    // Log final success
-    write_log_entry(
-      &log_path,
-      "job_completed_successfully",
-      job,
-      config,
-      cluster,
-      Some(json!({
-        "pid": pid,
-      })),
-    )?;
-
-    Ok(())
   }
 }

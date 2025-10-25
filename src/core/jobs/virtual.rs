@@ -16,8 +16,7 @@ impl SchedulerTrait for VirtualScheduler {
     Ok(String::new())
   }
 
-  fn launch_job(&self, job_script: &str) -> Result<(), JobError> {
-    // FIXME implement virtual job launch logic
+  fn launch_job(&self, job: &mut Job, config: &Config, cluster: &Cluster) -> Result<(), JobError> {
     Ok(())
   }
 }

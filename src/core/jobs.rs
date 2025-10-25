@@ -25,7 +25,7 @@ trait SchedulerTrait {
     config: &Config,
     cluster: &Cluster,
   ) -> Result<String, JobError>;
-  fn launch_job(&self, job_script: &str) -> Result<(), JobError>;
+  fn launch_job(&self, job: &mut Job, config: &Config, cluster: &Cluster) -> Result<(), JobError>;
   fn get_number_of_enqueued_jobs(&self) -> Result<usize, JobError> {
     Ok(0)
   }
@@ -116,22 +116,25 @@ fn launch_job(
     directory: "",
   };
 
-  let job = db.create_job(&new_job)?;
+  let mut job = db.create_job(&new_job)?;
   // Set directory name to ID assigned by the database
   let path = create_job_dir(path, job.id)?;
   db.update_job_path(job.id, path.to_str().unwrap())?;
 
-  let script = get_scheduler(&cluster.scheduler).create_job_script(&job, config, cluster);
+  // let script = get_scheduler(&cluster.scheduler).create_job_script(&job, config, cluster);
   if !virtual_queue {
     // FIXME: Should we update the submit time here or in the job script?
-    if (get_scheduler(&cluster.scheduler).launch_job(&script?)).is_err() {
-      db.update_job_status(job.id, &Status::Failed)?;
+    let launch_result = get_scheduler(&cluster.scheduler).launch_job(&mut job, config, cluster);
+
+    if launch_result.is_err() {
+      db.update_job_status(job.id, &Status::FailedSubmission)?;
       return Err(JobError::LaunchError("Failed to launch job".to_string()));
     } else {
-      db.update_job_status(job.id, &Status::Queued)?;
+      // TODO update DB Job (other fields like timestamps, exit_code etc.)
+      db.update_job_status(job.id, &job.status)?;
     }
   } else {
-    let _ = &r#virtual::VirtualScheduler.launch_job(&script?);
+    let _ = &r#virtual::VirtualScheduler.launch_job(&mut job, config, cluster);
     db.update_job_status(job.id, &Status::VirtualQueue)?;
   }
   Ok(())
