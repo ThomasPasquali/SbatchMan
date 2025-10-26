@@ -1,4 +1,4 @@
-use crate::core::sbatchman_config::{
+use crate::core::sbatchman_configs::{
   get_sbatchman_config, init_sbatchman_config, set_sbatchman_config,
 };
 

@@ -1,7 +1,8 @@
+mod cluster_configs;
 mod database;
 mod jobs;
 mod parsers;
-mod sbatchman_config;
+mod sbatchman_configs;
 
 #[cfg(test)]
 mod tests;
@@ -13,7 +14,7 @@ use crate::core::database::Database;
 pub struct Sbatchman {
   db: Database,
   path: PathBuf,
-  config: sbatchman_config::SbatchmanConfig,
+  config: sbatchman_configs::SbatchmanConfig,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -23,7 +24,7 @@ pub enum SbatchmanError {
   #[error("Parser Error: {0}")]
   ParserError(#[from] parsers::ParserError),
   #[error("Config Error: {0}")]
-  ConfigError(#[from] sbatchman_config::SbatchmanConfigError),
+  ConfigError(#[from] sbatchman_configs::SbatchmanConfigError),
   #[error(
     "No cluster set. Please set a cluster before launching jobs using `set-cluster` command."
   )]
@@ -36,20 +37,20 @@ impl Sbatchman {
   pub fn new() -> Result<Self, SbatchmanError> {
     let _ = env_logger::try_init();
 
-    let path = sbatchman_config::get_sbatchman_dir()?;
+    let path = sbatchman_configs::get_sbatchman_dir()?;
     let db = Database::new(&path)?;
-    let config = sbatchman_config::get_sbatchman_config(&path)?;
+    let config = sbatchman_configs::get_sbatchman_config(&path)?;
     Ok(Sbatchman { db, path, config })
   }
 
   pub fn init(path: &PathBuf) -> Result<(), SbatchmanError> {
-    sbatchman_config::init_sbatchman_dir(path)?;
+    sbatchman_configs::init_sbatchman_dir(path)?;
     Ok(())
   }
 
   pub fn set_cluster_name(&mut self, name: &str) -> Result<(), SbatchmanError> {
     self.config.cluster_name = Some(name.to_string());
-    sbatchman_config::set_sbatchman_config(&self.path, &mut self.config)?;
+    sbatchman_configs::set_sbatchman_config(&self.path, &mut self.config)?;
     Ok(())
   }
 

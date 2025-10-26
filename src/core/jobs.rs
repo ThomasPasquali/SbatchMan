@@ -3,7 +3,7 @@ mod pbs;
 mod slurm;
 mod utils;
 mod r#virtual;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 mod tests;
@@ -11,6 +11,7 @@ mod tests;
 use thiserror::Error;
 
 use crate::core::{
+  cluster_configs::ClusterConfig,
   database::{
     Database,
     models::{Cluster, Config, Job, NewJob, Status},
@@ -21,11 +22,11 @@ use crate::core::{
 trait SchedulerTrait {
   fn create_job_script(
     &self,
+    script_path: &Path,
     job: &Job,
-    config: &Config,
-    cluster: &Cluster,
+    cluster_config: &ClusterConfig,
   ) -> Result<String, JobError>;
-  fn launch_job(&self, job: &mut Job, config: &Config, cluster: &Cluster) -> Result<(), JobError>;
+  fn launch_job(&self, job: &mut Job, cluster_config: &ClusterConfig) -> Result<(), JobError>;
   fn get_number_of_enqueued_jobs(&self) -> Result<usize, JobError> {
     Ok(0)
   }
@@ -40,7 +41,7 @@ pub enum JobError {
   #[error("Parser Error: {0}")]
   ParserError(#[from] crate::core::parsers::ParserError),
   #[error("Config Error: {0}")]
-  ConfigError(#[from] crate::core::sbatchman_config::SbatchmanConfigError),
+  ConfigError(#[from] crate::core::sbatchman_configs::SbatchmanConfigError),
   #[error("Database Error: {0}")]
   DatabaseError(#[from] crate::core::database::StorageError),
   #[error("Config '{0}' not found for cluster")]
@@ -124,7 +125,13 @@ fn launch_job(
   // let script = get_scheduler(&cluster.scheduler).create_job_script(&job, config, cluster);
   if !virtual_queue {
     // FIXME: Should we update the submit time here or in the job script?
-    let launch_result = get_scheduler(&cluster.scheduler).launch_job(&mut job, config, cluster);
+    let launch_result = get_scheduler(&cluster.scheduler).launch_job(
+      &mut job,
+      &ClusterConfig {
+        cluster: cluster,
+        config: config,
+      },
+    );
 
     if launch_result.is_err() {
       db.update_job_status(job.id, &Status::FailedSubmission)?;
@@ -134,7 +141,13 @@ fn launch_job(
       db.update_job_status(job.id, &job.status)?;
     }
   } else {
-    let _ = &r#virtual::VirtualScheduler.launch_job(&mut job, config, cluster);
+    let _ = &r#virtual::VirtualScheduler.launch_job(
+      &mut job,
+      &ClusterConfig {
+        cluster: cluster,
+        config: config,
+      },
+    );
     db.update_job_status(job.id, &Status::VirtualQueue)?;
   }
   Ok(())

@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
+use crate::core::cluster_configs::ClusterConfig;
 use crate::core::database::models::Status;
 use crate::core::jobs::utils::*;
 use crate::core::{database::models::Job, jobs::SchedulerTrait};
 
-use super::{Cluster, Config, JobError};
+use super::JobError;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -109,25 +110,31 @@ impl LocalScheduler {
 impl SchedulerTrait for LocalScheduler {
   fn create_job_script(
     &self,
+    script_path: &Path,
     job: &Job,
-    config: &Config,
-    cluster: &Cluster,
+    cluster_config: &ClusterConfig,
   ) -> Result<String, JobError> {
-    let mut script = String::new();
+    let mut script = cluster_config.generate_script_header();
 
-    // Add script header
-    script.push_str(&generate_script_header(job, config, cluster));
+    cluster_config.add_environment_variables(&mut script);
 
-    // Add environment variables
-    add_environment_variables(&mut script, config);
+    add_log_command(
+      &mut script,
+      script_path,
+      JobLog::StatusUpdate(Status::Created),
+      None,
+    );
 
-    // Add job commands (preprocess, main, postprocess)
     add_job_commands(&mut script, job);
+
+    // TODO get exit code
+    // add_log_command(&mut script,
+    // script_path,JobLog::StatusUpdateBash("${SBM_STATUS}".to_string()), None);
 
     Ok(script)
   }
 
-  fn launch_job(&self, job: &mut Job, config: &Config, cluster: &Cluster) -> Result<(), JobError> {
+  fn launch_job(&self, job: &mut Job, cluster_config: &ClusterConfig) -> Result<(), JobError> {
     let job_dir = PathBuf::from(&job.directory);
     let (script_path, log_path) = prepare_job_directory(&job_dir)?;
     println!(
@@ -139,7 +146,7 @@ impl SchedulerTrait for LocalScheduler {
     write_log_entry(&log_path, JobLog::Metadata(job.clone()), None)?;
 
     // Create the job script
-    let script_content = self.create_job_script(job, config, cluster)?;
+    let script_content = self.create_job_script(script_path.as_path(), job, cluster_config)?;
     println!("==== SCRIPT\n{}\n==== SCRIPT END", script_content);
 
     // Save script to job directory
@@ -153,10 +160,14 @@ impl SchedulerTrait for LocalScheduler {
     // Make script executable
     make_script_executable(&script_path)?;
 
-    write_log_entry(&log_path, JobLog::StatusUpdate(Status::Created), None)?;
+    // write_log_entry(&log_path, JobLog::StatusUpdate(Status::Created), None)?;
 
     // Extract time limit from config flags if present
-    let time_limit = config.flags.get("time").and_then(|v| v.as_str());
+    let time_limit = cluster_config
+      .config
+      .flags
+      .get("time")
+      .and_then(|v| v.as_str());
 
     // Launch the job with full logging
     let (pid, exit_code, timed_out, start_time, end_time, duration_ms) =

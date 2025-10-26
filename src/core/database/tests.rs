@@ -1,6 +1,6 @@
 use crate::core::{
   database::{models::*, *},
-  sbatchman_config::tests::init_sbatchman_for_tests,
+  sbatchman_configs::tests::init_sbatchman_for_tests,
 };
 
 #[test]

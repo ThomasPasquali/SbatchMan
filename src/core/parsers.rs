@@ -1,4 +1,4 @@
-mod cluster_configs;
+mod configs;
 mod includes;
 mod jobs;
 mod utils;
@@ -9,7 +9,7 @@ mod tests;
 
 use thiserror::Error;
 
-pub use cluster_configs::parse_clusters_configs_from_file;
+pub use configs::parse_clusters_configs_from_file;
 pub use jobs::{ParsedJob, parse_jobs_from_file};
 
 #[derive(Error, Debug)]

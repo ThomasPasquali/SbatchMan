@@ -145,6 +145,7 @@ Stores detailed information for every job generated and submitted.
   * `end_time` (DATETIME)
   * `preprocess` (TEXT)
   * `postprocess` (TEXT)
+  * `exit_code` (INTEGER)
   * `archived` (BOOLEAN)
   * `variables` (TEXT, JSON Object)
 

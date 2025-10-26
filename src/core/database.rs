@@ -129,6 +129,16 @@ impl Database {
     Ok(cluster)
   }
 
+  pub fn get_cluster_by_id(&mut self, cluster_id: i32) -> Result<Cluster, StorageError> {
+    use self::schema::clusters::dsl::*;
+
+    let cluster = clusters
+      .filter(id.eq(cluster_id))
+      .first::<Cluster>(&mut self.conn)
+      .map_err(|e| StorageError::OperationError(e.to_string()))?;
+    Ok(cluster)
+  }
+
   /// Retrieve all configs for a given cluster as a HashMap
   pub fn get_configs_by_cluster(
     &mut self,
