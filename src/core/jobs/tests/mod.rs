@@ -1,10 +1,7 @@
 use crate::core::cluster_configs::ClusterConfig;
 use crate::core::database::models::{Cluster, Config, Job, Scheduler, Status};
 use crate::core::jobs::local::LocalScheduler;
-use crate::core::jobs::utils::{
-  add_job_commands, parse_time_to_seconds,
-  prepare_job_directory,
-};
+use crate::core::jobs::utils::parse_time_to_seconds;
 use crate::core::jobs::{JobError, SchedulerTrait};
 
 use log::debug;
@@ -77,7 +74,7 @@ fn test_parse_time_hhmmss_format() {
 #[test]
 fn test_parse_time_d_hhmmss_format() {
   assert_eq!(parse_time_to_seconds("1-00:00:00").unwrap(), 86400);
-  assert_eq!(parse_time_to_seconds("2-12:30:45").unwrap(), 218445);
+  assert_eq!(parse_time_to_seconds("2-12:30:45").unwrap(), 217845);
   assert_eq!(parse_time_to_seconds("0-01:00:00").unwrap(), 3600);
   assert_eq!(parse_time_to_seconds("7-00:00:00").unwrap(), 604800);
 }
@@ -107,27 +104,30 @@ fn test_parse_time_edge_cases() {
 fn test_prepare_job_directory_creates_directory() {
   let temp_dir = TempDir::new().unwrap();
   let job_dir = temp_dir.path().join("test_job");
+  let job = create_test_job(1, job_dir.to_str().unwrap());
 
   assert!(!job_dir.exists());
 
-  let result = prepare_job_directory(&job_dir);
+  let result = job.prepare_job_directory();
   assert!(result.is_ok());
   assert!(job_dir.exists());
 
-  let (script_path, log_path) = result.unwrap();
-  assert_eq!(script_path, job_dir.join("job.sh"));
-  assert_eq!(log_path, job_dir.join("job.log"));
+  assert_eq!(job.get_script_path(), job_dir.join("job.sh"));
+  assert_eq!(job.get_log_path(), job_dir.join("job.log"));
+  assert_eq!(job.get_stdout_path(), job_dir.join("stdout.log"));
+  assert_eq!(job.get_stderr_path(), job_dir.join("stderr.log"));
 }
 
 #[test]
 fn test_prepare_job_directory_existing_directory() {
   let temp_dir = TempDir::new().unwrap();
   let job_dir = temp_dir.path().join("existing_job");
+  let job = create_test_job(1, job_dir.to_str().unwrap());
 
   fs::create_dir_all(&job_dir).unwrap();
   assert!(job_dir.exists());
 
-  let result = prepare_job_directory(&job_dir);
+  let result = job.prepare_job_directory();
   assert!(result.is_ok());
   assert!(job_dir.exists());
 }
@@ -136,8 +136,9 @@ fn test_prepare_job_directory_existing_directory() {
 fn test_prepare_job_directory_nested_paths() {
   let temp_dir = TempDir::new().unwrap();
   let job_dir = temp_dir.path().join("level1/level2/level3/job");
+  let job = create_test_job(1, job_dir.to_str().unwrap());
 
-  let result = prepare_job_directory(&job_dir);
+  let result = job.prepare_job_directory();
   assert!(result.is_ok());
   assert!(job_dir.exists());
 }
@@ -146,59 +147,66 @@ fn test_prepare_job_directory_nested_paths() {
 // Tests for add_environment_variables
 // ============================================================================
 
-// FIXME these are useful
-// #[test]
-// fn test_add_environment_variables_empty() {
-//   let mut script = String::new();
-//   let config = create_test_config(1);
+#[test]
+fn test_add_environment_variables_empty() {
+  let mut script = String::new();
+  let cluster = create_test_cluster(1);
+  let config = create_test_config(1);
+  let cluster_config = ClusterConfig::new(&cluster, &config);
 
-//   add_environment_variables(&mut script, &config);
-//   assert!(script.is_empty());
-// }
+  cluster_config.add_environment_variables(&mut script);
+  assert!(script.is_empty());
+}
 
-// #[test]
-// fn test_add_environment_variables_single() {
-//   let mut script = String::new();
-//   let mut config = create_test_config(1);
-//   config.env = json!({"VAR1": "value1"});
+#[test]
+fn test_add_environment_variables_single() {
+  let mut script = String::new();
+  let cluster = create_test_cluster(1);
+  let mut config = create_test_config(1);
+  config.env = json!({"VAR1": "value1"});
+  let cluster_config = ClusterConfig::new(&cluster, &config);
 
-//   add_environment_variables(&mut script, &config);
-//   assert!(script.contains("export VAR1=\"value1\""));
-// }
+  cluster_config.add_environment_variables(&mut script);
+  assert!(script.contains("export VAR1=\"value1\""));
+}
 
-// #[test]
-// fn test_add_environment_variables_multiple() {
-//   let mut script = String::new();
-//   let mut config = create_test_config(1);
-//   config.env = json!({
-//       "PATH": "/usr/bin:/bin",
-//       "PYTHONPATH": "/opt/python",
-//       "CUDA_VISIBLE_DEVICES": "0,1"
-//   });
+#[test]
+fn test_add_environment_variables_multiple() {
+  let mut script = String::new();
+  let cluster = create_test_cluster(1);
+  let mut config = create_test_config(1);
+  config.env = json!({
+      "PATH": "/usr/bin:/bin",
+      "PYTHONPATH": "/opt/python",
+      "CUDA_VISIBLE_DEVICES": "0,1"
+  });
+  let cluster_config = ClusterConfig::new(&cluster, &config);
 
-//   add_environment_variables(&mut script, &config);
-//   assert!(script.contains("export PATH=\"/usr/bin:/bin\""));
-//   assert!(script.contains("export PYTHONPATH=\"/opt/python\""));
-//   assert!(script.contains("export CUDA_VISIBLE_DEVICES=\"0,1\""));
-// }
+  cluster_config.add_environment_variables(&mut script);
+  assert!(script.contains("export PATH=\"/usr/bin:/bin\""));
+  assert!(script.contains("export PYTHONPATH=\"/opt/python\""));
+  assert!(script.contains("export CUDA_VISIBLE_DEVICES=\"0,1\""));
+}
 
-// #[test]
-// fn test_add_environment_variables_non_string_values_included() {
-//   let mut script = String::new();
-//   let mut config = create_test_config(1);
-//   config.env = json!({
-//       "STRING_VAR": "value",
-//       "NUMBER_VAR": 42,
-//       "BOOL_VAR": true
-//   });
+#[test]
+fn test_add_environment_variables_non_string_values_included() {
+  let mut script = String::new();
+  let cluster = create_test_cluster(1);
+  let mut config = create_test_config(1);
+  config.env = json!({
+      "STRING_VAR": "value",
+      "NUMBER_VAR": 42,
+      "BOOL_VAR": true
+  });
+  let cluster_config = ClusterConfig::new(&cluster, &config);
 
-//   add_environment_variables(&mut script, &config);
-//   debug!("{}", script);
+  cluster_config.add_environment_variables(&mut script);
+  debug!("{}", script);
 
-//   assert!(script.contains("export STRING_VAR=\"value\""));
-//   assert!(script.contains("export NUMBER_VAR=42"));
-//   assert!(script.contains("export BOOL_VAR=true"));
-// }
+  assert!(script.contains("export STRING_VAR=\"value\""));
+  assert!(script.contains("export NUMBER_VAR=42"));
+  assert!(script.contains("export BOOL_VAR=true"));
+}
 
 // ============================================================================
 // Tests for add_job_commands
@@ -210,7 +218,7 @@ fn test_add_job_commands_only_main() {
   let mut script = String::new();
   let job = create_test_job(1, temp_dir.path().to_str().unwrap());
 
-  add_job_commands(&mut script, &job);
+  job.add_job_commands(&mut script);
 
   assert!(script.contains("# Main command"));
   assert!(script.contains("echo 'Hello World'"));
@@ -225,7 +233,7 @@ fn test_add_job_commands_with_preprocessing() {
   let mut job = create_test_job(1, temp_dir.path().to_str().unwrap());
   job.preprocess = Some("echo 'Starting preprocessing'".to_string());
 
-  add_job_commands(&mut script, &job);
+  job.add_job_commands(&mut script);
 
   assert!(script.contains("# Preprocessing"));
   assert!(script.contains("echo 'Starting preprocessing'"));
@@ -239,7 +247,7 @@ fn test_add_job_commands_with_postprocessing() {
   let mut job = create_test_job(1, temp_dir.path().to_str().unwrap());
   job.postprocess = Some("echo 'Cleanup complete'".to_string());
 
-  add_job_commands(&mut script, &job);
+  job.add_job_commands(&mut script);
 
   assert!(script.contains("# Main command"));
   assert!(script.contains("# Postprocessing"));
@@ -254,7 +262,7 @@ fn test_add_job_commands_full_pipeline() {
   job.preprocess = Some("echo 'Pre'".to_string());
   job.postprocess = Some("echo 'Post'".to_string());
 
-  add_job_commands(&mut script, &job);
+  job.add_job_commands(&mut script);
 
   // Check order
   let pre_pos = script.find("echo 'Pre'").unwrap();
@@ -273,7 +281,7 @@ fn test_add_job_commands_empty_strings_ignored() {
   job.preprocess = Some("".to_string());
   job.postprocess = Some("".to_string());
 
-  add_job_commands(&mut script, &job);
+  job.add_job_commands(&mut script);
 
   assert!(!script.contains("# Preprocessing"));
   assert!(!script.contains("# Postprocessing"));
@@ -394,15 +402,19 @@ fn test_create_job_script_basic() {
   let config = create_test_config(1);
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf().join("work_dir"),
+  };
   let script = scheduler
-    .create_job_script(&job_dir.join("job.sh"), &job, &ClusterConfig {config: &config, cluster: &cluster})
+    .create_job_script(&job, &ClusterConfig::new(&cluster, &config))
     .unwrap();
 
   assert!(script.starts_with("#!/bin/bash"));
-  assert!(script.contains("# Local execution script"));
-  assert!(script.contains("# Main command"));
+  assert!(script.contains("# --- Metadata ---"));
+  assert!(script.contains("# Set Working Directory\ncd \""));
+  assert!(script.contains("/work_dir\""));
   assert!(script.contains("echo 'Hello World'"));
+  assert!(script.contains("SBM_EXIT_CODE=$?"));
 }
 
 #[test]
@@ -414,9 +426,11 @@ fn test_create_job_script_with_environment() {
   config.env = json!({"TEST_VAR": "test_value"});
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
   let script = scheduler
-    .create_job_script(&job_dir.join("job.sh"), &job, &ClusterConfig {config: &config, cluster: &cluster})
+    .create_job_script(&job, &ClusterConfig::new(&cluster, &config))
     .unwrap();
 
   assert!(script.contains("export TEST_VAR=\"test_value\""));
@@ -430,9 +444,9 @@ fn test_create_job_script_with_environment() {
 //   let config = create_test_config(1);
 //   let cluster = create_test_cluster(1);
 
-//   let scheduler = LocalScheduler;
+//   let scheduler = LocalScheduler { launch_base_path: temp_dir.path().to_path_buf() };
 //   scheduler
-//     .create_job_script(&job, &ClusterConfig {config: &config, cluster: &cluster})
+//     .create_job_script(&job, &ClusterConfig::new(&cluster,&config))
 //     .unwrap();
 
 //   let log_path = job_dir.join("job.log");
@@ -451,7 +465,7 @@ fn test_create_job_script_with_environment() {
 
 #[test]
 fn test_get_number_of_enqueued_jobs_always_zero() {
-  let scheduler = LocalScheduler;
+  let scheduler = LocalScheduler::default();
   let result = scheduler.get_number_of_enqueued_jobs().unwrap();
   assert_eq!(result, 0);
 }
@@ -468,8 +482,10 @@ fn test_launch_job_creates_script_file() {
   let config = create_test_config(1);
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
-  let result = scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster});
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  let result = scheduler.launch_job(&mut job, &ClusterConfig::new(&cluster, &config));
 
   assert!(result.is_ok());
   assert!(job_dir.join("job.sh").exists());
@@ -483,8 +499,12 @@ fn test_launch_job_creates_logs() {
   let config = create_test_config(1);
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
-  scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster}).unwrap();
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  scheduler
+    .launch_job(&mut job, &ClusterConfig::new(&cluster, &config))
+    .unwrap();
 
   let log_path = job_dir.join("job.log");
   assert!(log_path.exists());
@@ -494,17 +514,12 @@ fn test_launch_job_creates_logs() {
   // Check for expected log events
   let events: Vec<&str> = entries
     .iter()
-    .map(|e| e["event"].as_str().unwrap())
+    .map(|e| e["type"].as_str().unwrap())
     .collect();
 
-  assert!(events.contains(&"job_submission"));
-  assert!(events.contains(&"job_script_creation_start"));
-  assert!(events.contains(&"job_script_created"));
-  assert!(events.contains(&"job_script_saved"));
-  assert!(events.contains(&"job_execution_start"));
-  assert!(events.contains(&"process_spawned"));
-  assert!(events.contains(&"job_execution_end"));
-  assert!(events.contains(&"job_completed_successfully"));
+  assert!(events.contains(&"Metadata"));
+  assert!(events.contains(&"StatusUpdate"));
+  assert_eq!(events.iter().filter(|v| **v == "StatusUpdate").count(), 3);
 }
 
 #[test]
@@ -515,8 +530,12 @@ fn test_launch_job_creates_stdout_stderr() {
   let config = create_test_config(1);
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
-  scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster}).unwrap();
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  scheduler
+    .launch_job(&mut job, &ClusterConfig::new(&cluster, &config))
+    .unwrap();
 
   assert!(job_dir.join("stdout.log").exists());
   assert!(job_dir.join("stderr.log").exists());
@@ -530,25 +549,52 @@ fn test_launch_job_failing_command() {
   let temp_dir = TempDir::new().unwrap();
   let job_dir = temp_dir.path().join("job_fail");
   let mut job = create_test_job(1, job_dir.to_str().unwrap());
-  job.command = "exit 1".to_string();
+  job.command = "exit 7".to_string();
   let config = create_test_config(1);
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
-  let result = scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster});
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  let result = scheduler.launch_job(&mut job, &ClusterConfig::new(&cluster, &config));
 
   // Job should complete but log the failure
   assert!(result.is_ok());
 
+  let script_path = job_dir.join("job.sh");
+  let content = fs::read_to_string(script_path).unwrap();
+  println!("{}", content);
+  println!("\n----------stdout---\n{}", job.get_stdout().unwrap());
+
   let log_path = job_dir.join("job.log");
   let entries = read_log_entries(&log_path).unwrap();
 
+  println!("{:#?}", entries);
+
   let end_entry = entries
     .iter()
-    .find(|e| e["event"] == "job_execution_end")
+    .find(|e| e["type"] == "StatusUpdate" && e["data"] == "Failed")
     .unwrap();
 
-  assert_eq!(end_entry["additional"]["exit_code"], 1);
+  assert!(
+    end_entry["additional"]["pid"]
+      .to_string()
+      .parse::<i32>()
+      .is_ok()
+  );
+  assert!(
+    end_entry["additional"]["exit_code"]
+      .to_string()
+      .parse::<i32>()
+      .is_ok()
+  );
+  assert_eq!(
+    end_entry["additional"]["exit_code"]
+      .to_string()
+      .parse::<i32>()
+      .unwrap(),
+    7
+  );
 }
 
 #[test]
@@ -561,8 +607,10 @@ fn test_launch_job_with_timeout() {
   config.flags = json!({"time": "00:00:02"});
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
-  let result = scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster});
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  let result = scheduler.launch_job(&mut job, &ClusterConfig::new(&cluster, &config));
 
   assert!(result.is_err());
   assert!(matches!(result.unwrap_err(), JobError::Timeout(_)));
@@ -583,8 +631,12 @@ fn test_launch_job_logs_duration() {
   let config = create_test_config(1);
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
-  scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster}).unwrap();
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  scheduler
+    .launch_job(&mut job, &ClusterConfig::new(&cluster, &config))
+    .unwrap();
 
   let log_path = job_dir.join("job.log");
   let entries = read_log_entries(&log_path).unwrap();
@@ -610,13 +662,17 @@ fn test_launch_job_preprocessor_postprocessor() {
   let config = create_test_config(1);
   let cluster = create_test_cluster(1);
 
-  let scheduler = LocalScheduler;
-  scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster}).unwrap();
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  scheduler
+    .launch_job(&mut job, &ClusterConfig::new(&cluster, &config))
+    .unwrap();
 
   // Check that all files were created
-  assert!(job_dir.join("pre.txt").exists());
-  assert!(job_dir.join("main.txt").exists());
-  assert!(job_dir.join("post.txt").exists());
+  assert!(temp_dir.path().join("pre.txt").exists());
+  assert!(temp_dir.path().join("main.txt").exists());
+  assert!(temp_dir.path().join("post.txt").exists());
 }
 
 // ============================================================================
@@ -635,8 +691,12 @@ fn test_log_allows_database_reconstruction() {
   let mut cluster = create_test_cluster(3);
   cluster.max_jobs = Some(50);
 
-  let scheduler = LocalScheduler;
-  scheduler.launch_job(&mut job, &ClusterConfig {config: &config, cluster: &cluster}).unwrap();
+  let scheduler = LocalScheduler {
+    launch_base_path: temp_dir.path().to_path_buf(),
+  };
+  scheduler
+    .launch_job(&mut job, &ClusterConfig::new(&cluster, &config))
+    .unwrap();
 
   let log_path = job_dir.join("job.log");
   let entries = read_log_entries(&log_path).unwrap();

@@ -3,26 +3,32 @@ mod pbs;
 mod slurm;
 mod utils;
 mod r#virtual;
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::{
+  fs,
+  path::{Path, PathBuf},
+};
 
 #[cfg(test)]
 mod tests;
 
+use serde_json::Value;
 use thiserror::Error;
 
+use crate::core::jobs::utils::{escape_for_printf, get_timestamp_string};
 use crate::core::{
   cluster_configs::ClusterConfig,
   database::{
     Database,
     models::{Cluster, Config, Job, NewJob, Status},
   },
+  jobs::utils::{JobLog, map_err_adding_description, serialize_log_entry},
   parsers::ParsedJob,
 };
 
 trait SchedulerTrait {
   fn create_job_script(
     &self,
-    script_path: &Path,
     job: &Job,
     cluster_config: &ClusterConfig,
   ) -> Result<String, JobError>;
@@ -58,6 +64,141 @@ pub enum JobError {
   Timeout(String),
   #[error("Job Execution: {0}")]
   ExecutionFailed(String),
+}
+
+impl Job {
+  /// Add preprocessing, main command, and postprocessing to script
+  /// This is used by all schedulers to construct the job execution flow
+  pub fn add_job_commands(&self, script: &mut String) {
+    // Add preprocessing if present
+    if let Some(preprocess) = &self.preprocess {
+      if !preprocess.is_empty() {
+        script.push_str("\n# Preprocessing\n");
+        script.push_str(preprocess);
+        script.push_str("\n\n");
+      }
+    }
+
+    // Add the main command
+    script.push_str("\n# Main command\n");
+    script.push_str(&self.command);
+    script.push_str("\n\nSBM_EXIT_CODE=$?");
+
+    // Add postprocessing if present
+    if let Some(postprocess) = &self.postprocess {
+      if !postprocess.is_empty() {
+        script.push_str("\n# Postprocessing\n");
+        script.push_str(postprocess);
+        script.push_str("\n");
+      }
+    }
+  }
+
+  pub fn get_log_path(&self) -> PathBuf {
+    Path::new(&self.directory).join("job.log")
+  }
+  pub fn get_log(&self) -> std::io::Result<String> {
+    fs::read_to_string(self.get_log_path())
+  }
+
+  pub fn get_script_path(&self) -> PathBuf {
+    Path::new(&self.directory).join("job.sh")
+  }
+  pub fn get_script(&self) -> std::io::Result<String> {
+    fs::read_to_string(self.get_script_path())
+  }
+
+  pub fn get_stdout_path(&self) -> PathBuf {
+    Path::new(&self.directory).join("stdout.log")
+  }
+  pub fn get_stdout(&self) -> std::io::Result<String> {
+    fs::read_to_string(self.get_stdout_path())
+  }
+
+  pub fn get_stderr_path(&self) -> PathBuf {
+    Path::new(&self.directory).join("stderr.log")
+  }
+  pub fn get_stderr(&self) -> std::io::Result<String> {
+    fs::read_to_string(self.get_stderr_path())
+  }
+
+  /// Ensure job directory exists and return paths for script and log files
+  /// This is used by all schedulers to prepare the job directory
+  pub fn prepare_job_directory(&self) -> Result<(), JobError> {
+    std::fs::create_dir_all(&self.directory)
+      .map_err(|e| map_err_adding_description(e, "Could not prepare Job directory {}"))?;
+    Ok(())
+  }
+
+  /// Write a log entry to the job log file
+/// This logs complete job metadata with timestamps for database reconstruction
+pub fn write_log_entry(
+    &self,
+    log: JobLog,
+    additional_data: Option<serde_json::Value>,
+) -> Result<(), JobError> {
+    let mut log_entry = serialize_log_entry(log, additional_data);
+    
+    // Replace the placeholder with actual timestamp
+    if let Some(obj) = log_entry.as_object_mut() {
+        obj.insert(
+            "timestamp".to_string(),
+            Value::String(get_timestamp_string()),
+        );
+    }
+
+    // Append to log file
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(self.get_log_path())?;
+
+    writeln!(file, "{}", serde_json::to_string(&log_entry).unwrap())?;
+
+    Ok(())
+}
+
+/// Creates a bash command to add a log entry to the job log file
+/// This logs complete job metadata with timestamps for database reconstruction
+pub fn add_log_command(&self, script: &mut String, log: JobLog, additional_data: Option<Value>) {
+    let job_log_path = self.get_log_path();
+    let abs_path: PathBuf = if job_log_path.is_absolute() {
+        job_log_path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .expect("Failed to get current dir")
+            .join(job_log_path)
+            .canonicalize()
+            .expect("Failed to canonicalize path")
+    };
+
+    let log_entry = serialize_log_entry(log, additional_data);
+    let json_str = serde_json::to_string(&log_entry).unwrap();
+
+    // The placeholder as it appears in the JSON string (with quotes)
+    let placeholder_quoted = "\"__TIMESTAMP__\"";
+    
+    // Find and split at the placeholder
+    let pos = json_str.find(placeholder_quoted)
+        .expect("Timestamp placeholder not found in JSON");
+    
+    let before = &json_str[..pos];
+    let after = &json_str[pos + placeholder_quoted.len()..];
+
+    // Escape for printf, preserving ${...} for bash variable expansion
+    let before_escaped = escape_for_printf(before);
+    let after_escaped = escape_for_printf(after);
+    
+    // Build the printf command
+    // The timestamp must be outside quotes to be evaluated
+    let printf_cmd = format!(
+        "printf '%s\"%s\"%s\\n' '{}' \"$(date +\"%Y-%m-%d %H:%M:%S.%3N\")\" '{}'",
+        before_escaped,
+        after_escaped
+    );
+
+    script.push_str(&format!("\n{} >> {}\n", printf_cmd, abs_path.display()));
+}
 }
 
 pub fn launch_jobs_from_file(
@@ -162,10 +303,10 @@ fn create_job_dir(path: &PathBuf, id: i32) -> Result<PathBuf, JobError> {
   Ok(dir_path)
 }
 
-fn get_scheduler(scheduler: &DbScheduler) -> &dyn SchedulerTrait {
+fn get_scheduler(scheduler: &DbScheduler) -> Box<dyn SchedulerTrait> {
   match scheduler {
-    DbScheduler::Slurm => &slurm::SlurmScheduler,
-    DbScheduler::Pbs => &pbs::PbsScheduler,
-    DbScheduler::Local => &local::LocalScheduler,
+    DbScheduler::Slurm => Box::new(slurm::SlurmScheduler),
+    DbScheduler::Pbs => Box::new(pbs::PbsScheduler),
+    DbScheduler::Local => Box::new(local::LocalScheduler::default()),
   }
 }

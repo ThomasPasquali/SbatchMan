@@ -9,7 +9,6 @@ pub struct PbsScheduler;
 impl SchedulerTrait for PbsScheduler {
   fn create_job_script(
     &self,
-    script_path: &Path,
     job: &Job,
     cluster_config: &ClusterConfig,
   ) -> Result<String, JobError> {

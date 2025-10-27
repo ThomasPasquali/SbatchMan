@@ -12,21 +12,30 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-#[derive(Debug, PartialEq, Default)]
-pub struct LocalScheduler;
+#[derive(Debug, PartialEq)]
+pub struct LocalScheduler {
+  pub launch_base_path: PathBuf,
+}
+
+impl Default for LocalScheduler {
+  fn default() -> Self {
+    Self {
+      launch_base_path: PathBuf::from("."),
+    }
+  }
+}
 
 impl LocalScheduler {
   /// Submit a job locally with optional timeout
-  /// Returns (pid, exit_code, timed_out, start_time, end_time, duration_ms)
+  /// Returns (pid, exit_code, timed_out)
   fn local_submit(
     &self,
-    script_path: &Path,
-    job_dir: &Path,
-    log_path: &Path,
+    job: &Job,
     time_limit: Option<&str>,
-  ) -> Result<(u32, Option<i32>, bool, DateTime<Utc>, DateTime<Utc>, i64), JobError> {
-    let stdout_log = job_dir.join("stdout.log");
-    let stderr_log = job_dir.join("stderr.log");
+  ) -> Result<(u32, Option<i32>, bool), JobError> {
+    let stdout_log = job.get_stdout_path();
+    let stderr_log = job.get_stderr_path();
+    let script_path = job.get_script_path();
 
     let stdout_file = File::create(&stdout_log)
       .map_err(|e| map_err_adding_description(e, "Failed to create stdout log: {}"))?;
@@ -56,11 +65,7 @@ impl LocalScheduler {
 
       pid = child.id();
       start_time = Some(get_timestamp());
-      write_log_entry(
-        &log_path,
-        JobLog::StatusUpdate(Status::Running),
-        Some(json!({"start_time": start_time.unwrap(), "timeout_seconds": timeout_seconds})),
-      )?;
+      job.write_log_entry(JobLog::StatusUpdate(Status::Running), None)?;
 
       let output = child
         .wait_with_output()
@@ -86,11 +91,7 @@ impl LocalScheduler {
 
       pid = child.id();
       start_time = Some(get_timestamp());
-      write_log_entry(
-        &log_path,
-        JobLog::StatusUpdate(Status::Running),
-        Some(json!({"start_time": start_time.unwrap(), "timeout_seconds": 0})),
-      )?;
+      job.write_log_entry(JobLog::StatusUpdate(Status::Running), None)?;
 
       let output = child
         .wait_with_output()
@@ -99,55 +100,38 @@ impl LocalScheduler {
       exit_code = output.status.code();
     }
 
-    let end_time = get_timestamp();
-    let start_time = start_time.unwrap();
-    let duration_ms = (end_time - start_time).num_milliseconds();
-
-    Ok((pid, exit_code, timed_out, start_time, end_time, duration_ms))
+    Ok((pid, exit_code, timed_out))
   }
 }
 
 impl SchedulerTrait for LocalScheduler {
   fn create_job_script(
     &self,
-    script_path: &Path,
     job: &Job,
     cluster_config: &ClusterConfig,
   ) -> Result<String, JobError> {
-    let mut script = cluster_config.generate_script_header();
+    let mut script = cluster_config.generate_script_header(&self.launch_base_path);
 
     cluster_config.add_environment_variables(&mut script);
 
-    add_log_command(
+    job.add_job_commands(&mut script);
+
+    job.add_log_command(
       &mut script,
-      script_path,
-      JobLog::StatusUpdate(Status::Created),
+      JobLog::BashVariable("SBM_EXIT_CODE".to_string()),
       None,
     );
-
-    add_job_commands(&mut script, job);
-
-    // TODO get exit code
-    // add_log_command(&mut script,
-    // script_path,JobLog::StatusUpdateBash("${SBM_STATUS}".to_string()), None);
 
     Ok(script)
   }
 
   fn launch_job(&self, job: &mut Job, cluster_config: &ClusterConfig) -> Result<(), JobError> {
-    let job_dir = PathBuf::from(&job.directory);
-    let (script_path, log_path) = prepare_job_directory(&job_dir)?;
-    println!(
-      "{}\n{}",
-      script_path.to_str().unwrap(),
-      log_path.to_str().unwrap()
-    );
-
-    write_log_entry(&log_path, JobLog::Metadata(job.clone()), None)?;
+    job.prepare_job_directory()?;
+    job.write_log_entry(JobLog::Metadata(job.clone()), None)?;
 
     // Create the job script
-    let script_content = self.create_job_script(script_path.as_path(), job, cluster_config)?;
-    println!("==== SCRIPT\n{}\n==== SCRIPT END", script_content);
+    let script_path = job.get_script_path();
+    let script_content = self.create_job_script(job, cluster_config)?;
 
     // Save script to job directory
     let mut file = File::create(&script_path)
@@ -160,7 +144,7 @@ impl SchedulerTrait for LocalScheduler {
     // Make script executable
     make_script_executable(&script_path)?;
 
-    // write_log_entry(&log_path, JobLog::StatusUpdate(Status::Created), None)?;
+    job.write_log_entry(JobLog::StatusUpdate(Status::Created), None)?;
 
     // Extract time limit from config flags if present
     let time_limit = cluster_config
@@ -170,16 +154,8 @@ impl SchedulerTrait for LocalScheduler {
       .and_then(|v| v.as_str());
 
     // Launch the job with full logging
-    let (pid, exit_code, timed_out, start_time, end_time, duration_ms) =
-      self.local_submit(&script_path, &job_dir, &log_path, time_limit)?;
+    let (pid, exit_code, timed_out) = self.local_submit(job, time_limit)?;
 
-    let additional_data = Some(json!({
-      "pid": pid,
-      "exit_code": exit_code,
-      "start_time": start_time,
-      "end_time": end_time,
-      "duration_ms": duration_ms
-    }));
     // FIXME should be done better
     let status = if timed_out {
       Status::Timeout
@@ -192,7 +168,10 @@ impl SchedulerTrait for LocalScheduler {
     } else {
       Status::FailedSubmission // FIXME Especially this
     };
-    write_log_entry(&log_path, JobLog::StatusUpdate(status), additional_data)?;
+    job.write_log_entry(
+      JobLog::StatusUpdate(status),
+      json!({"pid": pid}).into(),
+    )?;
 
     Ok(())
   }

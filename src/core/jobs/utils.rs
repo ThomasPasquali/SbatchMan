@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs::create_dir_all;
@@ -6,10 +6,7 @@ use std::io::{Error, Write};
 use std::path::{Path, PathBuf};
 
 use crate::core::database::models::Status;
-use crate::core::{
-  database::models::{Cluster, Config, Job},
-  jobs::JobError,
-};
+use crate::core::{database::models::Job, jobs::JobError};
 
 pub fn map_err_adding_description(error: Error, description: &str) -> JobError {
   JobError::IoError(std::io::Error::new(
@@ -28,166 +25,126 @@ pub fn get_timestamp() -> DateTime<Utc> {
 pub enum JobLog {
   Metadata(Job),
   StatusUpdate(Status),
-  StatusUpdateBash(String), // The string contains the bash variable name that contains the status
+  BashVariable(String), // The string must contain the bash variable name in the format "${VAR}"
 }
 
-fn serialize_log_entry(log: JobLog, additional_data: Option<serde_json::Value>) -> Value {
-  let mut log_entry = json!(log);
-  println!("{:#?}", log_entry);
+/// Escapes a string for use within single quotes in a printf command
+/// Handles ${...} bash variables and $(...) command substitutions specially to allow expansion
+pub fn escape_for_printf(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    
+    while let Some(ch) = chars.next() {
+        match ch {
+            // Escape single quotes by ending the single-quoted string,
+            // adding an escaped single quote, and starting a new single-quoted string
+            '\'' => result.push_str("'\\''"),
+            // Escape backslashes for printf
+            '\\' => result.push_str("\\\\"),
+            // Handle ${...} and $(...) for bash expansion
+            '$' => {
+                match chars.peek() {
+                    Some(&'{') => {
+                        // Handle ${VAR} - close quote, add variable unquoted, reopen quote
+                        result.push_str("'\"${");
+                        chars.next(); // consume '{'
+                        
+                        // Copy until closing brace
+                        while let Some(inner_ch) = chars.next() {
+                            if inner_ch == '}' {
+                                result.push_str("}\"'");
+                                break;
+                            }
+                            result.push(inner_ch);
+                        }
+                    }
+                    Some(&'(') => {
+                        // Handle $(cmd) - close quote, add command substitution unquoted, reopen quote
+                        result.push_str("'\"$(");
+                        chars.next(); // consume '('
+                        
+                        let mut depth = 1;
+                        // Copy until matching closing paren, handling nested parens
+                        while let Some(inner_ch) = chars.next() {
+                            match inner_ch {
+                                '(' => {
+                                    depth += 1;
+                                    result.push(inner_ch);
+                                }
+                                ')' => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        result.push_str(")\"'");
+                                        break;
+                                    }
+                                    result.push(inner_ch);
+                                }
+                                _ => result.push(inner_ch),
+                            }
+                        }
+                    }
+                    _ => result.push('$'),
+                }
+            }
+            _ => result.push(ch),
+        }
+    }
+    result
+}
 
-  // Add any additional data
-  if let Some(data) = additional_data {
+pub fn serialize_log_entry(log: JobLog, additional_data: Option<serde_json::Value>) -> Value {
+    let mut log_entry = match log {
+        JobLog::BashVariable(var_name) => {
+            json!({
+                "data": { var_name.clone(): format!("${{{}}}", var_name) },
+                "type": "BashVariable"
+            })
+        }
+        other => json!(other),
+    };
+
+    if let Some(data) = additional_data {
+        log_entry
+            .as_object_mut()
+            .unwrap()
+            .insert("additional".to_string(), data);
+    }
+
+    // Add timestamp placeholder
     log_entry
-      .as_object_mut()
-      .unwrap()
-      .insert("additional".to_string(), data);
-  }
-  log_entry
-}
+        .as_object_mut()
+        .unwrap()
+        .insert("timestamp".to_string(), Value::String("__TIMESTAMP__".to_string()));
 
-/// Write a log entry to the job log file
-/// This logs complete job metadata with timestamps for database reconstruction
-pub fn write_log_entry(
-  log_path: &Path,
-  log: JobLog,
-  additional_data: Option<serde_json::Value>,
-) -> Result<(), JobError> {
-  let log_entry = serialize_log_entry(log, additional_data);
-
-  // Append to log file
-  let mut file = std::fs::OpenOptions::new()
-    .create(true)
-    .append(true)
-    .open(log_path)?;
-
-  writeln!(file, "{}", serde_json::to_string(&log_entry).unwrap())?;
-
-  Ok(())
-}
-
-/// Creates a bash command to add a log entry to the job log file
-/// This logs complete job metadata with timestamps for database reconstruction
-pub fn add_log_command(
-  script: &mut String,
-  script_path: &Path,
-  log: JobLog,
-  additional_data: Option<Value>,
-) {
-  let abs_path: PathBuf = if script_path.is_absolute() {
-    script_path.to_path_buf()
-  } else {
-    std::env::current_dir()
-      .expect("Failed to get current dir")
-      .join(script_path)
-      .canonicalize()
-      .expect("Failed to canonicalize path")
-  };
-
-  let mut log_entry = serialize_log_entry(log, additional_data);
-  log_entry.as_object_mut().unwrap().insert(
-    "timestamp".to_string(),
-    Value::String("$(date +\"%Y-%m-%d %H:%M:%S.%3N\")".to_string()),
-  );
-
-  let json_str = serde_json::to_string(&log_entry).unwrap();
-
-  // Escape all double quotes except those in $(date ...)
-  // We first escape all, then restore the ones around the timestamp
-  let escaped = json_str.replace('"', "\\\"").replace(
-    "\\\"$(date +\\\\\\\"%Y-%m-%d %H:%M:%S.%3N\\\\\\\")\\\"",
-    "$(date +\"%Y-%m-%d %H:%M:%S.%3N\")",
-  );
-
-  script.push_str(&format!("echo \"{}\" >> {}\n", escaped, abs_path.display()));
+    log_entry
 }
 
 /// Parse time string in format "HH:MM:SS" or "D-HH:MM:SS" to seconds
-/// This is used by SLURM, PBS, and local schedulers for time limits
+/// Compatible with SLURM, PBS, and local schedulers
 pub fn parse_time_to_seconds(time_str: &str) -> Result<u64, JobError> {
-  if time_str.contains('-') {
-    // Format: D-HH:MM:SS
-    let parts: Vec<&str> = time_str.split('-').collect();
-    if parts.len() != 2 {
-      return Err(JobError::InvalidTimeFormat(time_str.to_string()));
-    }
-
-    let days: u64 = parts[0]
+  // Split possible "D-" prefix
+  let (days, time_part) = if let Some((d, t)) = time_str.split_once('-') {
+    let days: u64 = d
       .parse()
       .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
-
-    let time_parts: Vec<&str> = parts[1].split(':').collect();
-    if time_parts.len() != 3 {
-      return Err(JobError::InvalidTimeFormat(time_str.to_string()));
-    }
-
-    let hours: u64 = time_parts[0]
-      .parse()
-      .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
-    let minutes: u64 = time_parts[1]
-      .parse()
-      .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
-    let seconds: u64 = time_parts[2]
-      .parse()
-      .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
-
-    Ok(days * 86400 + hours * 3600 + minutes * 60 + seconds)
+    (days, t)
   } else {
-    // Format: HH:MM:SS
-    let time_parts: Vec<&str> = time_str.split(':').collect();
-    if time_parts.len() != 3 {
-      return Err(JobError::InvalidTimeFormat(time_str.to_string()));
-    }
+    (0, time_str)
+  };
 
-    let hours: u64 = time_parts[0]
-      .parse()
-      .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
-    let minutes: u64 = time_parts[1]
-      .parse()
-      .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
-    let seconds: u64 = time_parts[2]
-      .parse()
-      .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
+  // Parse HH:MM:SS using chrono
+  let time = NaiveTime::parse_from_str(time_part, "%H:%M:%S")
+    .map_err(|_| JobError::InvalidTimeFormat(time_str.to_string()))?;
 
-    Ok(hours * 3600 + minutes * 60 + seconds)
-  }
+  // Convert to total seconds
+  let total_seconds = days * 86_400 + time.num_seconds_from_midnight() as u64;
+
+  Ok(total_seconds)
 }
 
-/// Ensure job directory exists and return paths for script and log files
-/// This is used by all schedulers to prepare the job directory
-pub fn prepare_job_directory(job_dir: &Path) -> Result<(PathBuf, PathBuf), JobError> {
-  create_dir_all(job_dir)?;
-
-  let script_path = job_dir.join("job.sh");
-  let log_path = job_dir.join("job.log");
-
-  Ok((script_path, log_path))
-}
-
-/// Add preprocessing, main command, and postprocessing to script
-/// This is used by all schedulers to construct the job execution flow
-pub fn add_job_commands(script: &mut String, job: &Job) {
-  // Add preprocessing if present
-  if let Some(preprocess) = &job.preprocess {
-    if !preprocess.is_empty() {
-      script.push_str("# Preprocessing\n");
-      script.push_str(preprocess);
-      script.push_str("\n\n");
-    }
-  }
-
-  // Add the main command
-  script.push_str("# Main command\n");
-  script.push_str(&job.command);
-  script.push_str("SBM_STATUS = $?\n\n");
-
-  // Add postprocessing if present
-  if let Some(postprocess) = &job.postprocess {
-    if !postprocess.is_empty() {
-      script.push_str("# Postprocessing\n");
-      script.push_str(postprocess);
-      script.push_str("\n");
-    }
-  }
+pub fn get_timestamp_string() -> String {
+    use chrono::Local;
+    Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
 /// Make a script file executable (Unix only)

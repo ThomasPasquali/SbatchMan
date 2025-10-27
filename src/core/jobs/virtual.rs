@@ -10,7 +10,6 @@ pub struct VirtualScheduler;
 impl SchedulerTrait for VirtualScheduler {
   fn create_job_script(
     &self,
-    script_path: &Path,
     job: &Job,
     cluster_config: &ClusterConfig,
   ) -> Result<String, JobError> {
