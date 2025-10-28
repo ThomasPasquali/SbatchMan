@@ -60,10 +60,10 @@ pub enum JobError {
   SpawnError(String),
   #[error("Job Wait: {0}")]
   WaitError(String),
-  #[error("Job Timeout: {0}")]
-  Timeout(String),
   #[error("Job Execution: {0}")]
   ExecutionFailed(String),
+  #[error("Generic Error: {0}")]
+  Other(String),
 }
 
 impl Job {
@@ -95,7 +95,7 @@ impl Job {
   }
 
   pub fn get_log_path(&self) -> PathBuf {
-    Path::new(&self.directory).join("job.log")
+    Path::new(&self.directory).join("log.jsonb")
   }
   pub fn get_log(&self) -> std::io::Result<String> {
     fs::read_to_string(self.get_log_path())
@@ -128,6 +128,16 @@ impl Job {
     std::fs::create_dir_all(&self.directory)
       .map_err(|e| map_err_adding_description(e, "Could not prepare Job directory {}"))?;
     Ok(())
+  }
+
+  fn read_log_entries(&self) -> Result<Vec<serde_json::Value>, std::io::Error> {
+    let content = self.get_log()?;
+    let entries: Vec<serde_json::Value> = content
+      .lines()
+      .filter(|line| !line.is_empty())
+      .map(|line| serde_json::from_str(line).unwrap())
+      .collect();
+    Ok(entries)
   }
 
   /// Write a log entry to the job log file

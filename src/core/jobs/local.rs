@@ -7,10 +7,12 @@ use crate::core::jobs::utils::*;
 use crate::core::{database::models::Job, jobs::SchedulerTrait};
 
 use super::JobError;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
 pub struct LocalScheduler {
@@ -26,82 +28,68 @@ impl Default for LocalScheduler {
 }
 
 impl LocalScheduler {
+
+  pub fn new(launch_base_path: PathBuf) -> Self {
+    Self {
+      launch_base_path: launch_base_path
+    }
+  }
+
   /// Submit a job locally with optional timeout
-  /// Returns (pid, exit_code, timed_out)
-  fn local_submit(
+/// Returns (pid, exit_code, timed_out)
+fn local_submit(
     &self,
     job: &Job,
     time_limit: Option<&str>,
-  ) -> Result<(u32, Option<i32>, bool), JobError> {
-    let stdout_log = job.get_stdout_path();
-    let stderr_log = job.get_stderr_path();
+) -> Result<(u32, Option<i32>, bool), JobError> {
+    let stdout_file = File::create(job.get_stdout_path())
+        .map_err(|e| map_err_adding_description(e, "Failed to create stdout log: {}"))?;
+    let stderr_file = File::create(job.get_stderr_path())
+        .map_err(|e| map_err_adding_description(e, "Failed to create stderr log: {}"))?;
+
     let script_path = job.get_script_path();
+    ensure_executable(&script_path)?;
 
-    let stdout_file = File::create(&stdout_log)
-      .map_err(|e| map_err_adding_description(e, "Failed to create stdout log: {}"))?;
-    let stderr_file = File::create(&stderr_log)
-      .map_err(|e| map_err_adding_description(e, "Failed to create stderr log: {}"))?;
-
-    let mut timed_out = false;
-    let pid: u32;
-    let exit_code: Option<i32>;
-    let mut start_time: Option<DateTime<Utc>> = None;
-
-    if let Some(time_str) = time_limit {
-      // Use timeout command if time limit is specified
-      let timeout_seconds = parse_time_to_seconds(time_str)?;
-
-      let mut timeout_cmd = Command::new("timeout");
-      timeout_cmd
-        .arg(timeout_seconds.to_string())
-        .arg("bash")
-        .arg(script_path.to_str().unwrap())
-        .stdout(Stdio::from(stdout_file))
-        .stderr(Stdio::from(stderr_file));
-
-      let child = timeout_cmd
-        .spawn()
-        .map_err(|e| JobError::SpawnError(format!("Failed to spawn process: {}", e)))?;
-
-      pid = child.id();
-      start_time = Some(get_timestamp());
-      job.write_log_entry(JobLog::StatusUpdate(Status::Running), None)?;
-
-      let output = child
-        .wait_with_output()
-        .map_err(|e| JobError::WaitError(format!("Failed to wait for process: {}", e)))?;
-
-      exit_code = output.status.code();
-
-      // Exit code 124 indicates timeout
-      if exit_code == Some(124) {
-        timed_out = true;
-      }
+    // Prepare the command (with or without timeout)
+    let mut cmd = if let Some(time_str) = time_limit {
+        let timeout_seconds = parse_time_to_seconds(time_str)?;
+        let mut c = Command::new("timeout");
+        c.arg(timeout_seconds.to_string()).arg(script_path);
+        c
     } else {
-      // No timeout, run directly
-      let mut command = Command::new("bash");
-      command
-        .arg(script_path.to_str().unwrap())
-        .stdout(Stdio::from(stdout_file))
-        .stderr(Stdio::from(stderr_file));
+        Command::new(script_path)
+    };
 
-      let child = command
+    cmd.stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file));
+    // println!("CMD {:#?}", cmd);
+
+    // Run the command
+    let mut child = cmd
         .spawn()
         .map_err(|e| JobError::SpawnError(format!("Failed to spawn process: {}", e)))?;
 
-      pid = child.id();
-      start_time = Some(get_timestamp());
       job.write_log_entry(JobLog::StatusUpdate(Status::Running), None)?;
+    let pid = child.id();
 
-      let output = child
-        .wait_with_output()
+    let output = child
+        .wait()
         .map_err(|e| JobError::WaitError(format!("Failed to wait for process: {}", e)))?;
 
-      exit_code = output.status.code();
-    }
+    let exit_code = output.code();
+        // println!("sstsus {:#?}", output);
+        // println!("succc {:#?}", output.success());
+        // println!("stdout:{:#?}", job.get_stdout());
+        // println!("stderr:{:#?}", job.get_stderr());
+    let timed_out = exit_code == Some(124); // "timeout" command exit code
+
+        // println!("SCRIPT\n{}", job.get_script()?);
+        // println!("CODE {:?}", exit_code);
+        // println!("LOG {:?}", job.get_log()?);
 
     Ok((pid, exit_code, timed_out))
-  }
+}
+
 }
 
 impl SchedulerTrait for LocalScheduler {
@@ -122,6 +110,8 @@ impl SchedulerTrait for LocalScheduler {
       None,
     );
 
+    script.push_str("exit \"${SBM_EXIT_CODE}\"");
+
     Ok(script)
   }
 
@@ -134,12 +124,19 @@ impl SchedulerTrait for LocalScheduler {
     let script_content = self.create_job_script(job, cluster_config)?;
 
     // Save script to job directory
+    {// FIXME this seems to be an issue sometimes SpawnError("Failed to spawn process: Text file busy (os error 26)")
     let mut file = File::create(&script_path)
       .map_err(|e| map_err_adding_description(e, "Failed to create script file: {}"))?;
 
     file
       .write_all(script_content.as_bytes())
       .map_err(|e| map_err_adding_description(e, "Failed to write script: {}"))?;
+
+    // Explicitly flush and close the file
+    file.flush()
+        .map_err(|e| map_err_adding_description(e, "Failed to flush script: {}"))?;
+      
+    } // File is dropped and closed here
 
     // Make script executable
     make_script_executable(&script_path)?;
@@ -169,11 +166,13 @@ impl SchedulerTrait for LocalScheduler {
       Status::FailedSubmission // FIXME Especially this
     };
     job.write_log_entry(
-      JobLog::StatusUpdate(status),
+      JobLog::StatusUpdate(status.clone()),
       json!({"pid": pid}).into(),
     )?;
-
-    Ok(())
+    match status {
+        Status::FailedSubmission => Err(JobError::ExecutionFailed("Could not run job".to_string())),
+        _ => Ok(())
+    }
   }
 
   fn get_number_of_enqueued_jobs(&self) -> Result<usize, JobError> {

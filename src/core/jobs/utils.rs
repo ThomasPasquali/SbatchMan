@@ -1,9 +1,11 @@
-use chrono::{DateTime, NaiveTime, Timelike, Utc};
+use chrono::{DateTime, NaiveDateTime, NaiveTime, ParseError, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs::create_dir_all;
 use std::io::{Error, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use chrono::Local;
 
 use crate::core::database::models::Status;
 use crate::core::{database::models::Job, jobs::JobError};
@@ -142,8 +144,26 @@ pub fn parse_time_to_seconds(time_str: &str) -> Result<u64, JobError> {
   Ok(total_seconds)
 }
 
+pub fn parse_timestamp(timestamp: &str) -> Result<NaiveDateTime, ParseError> {
+    NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%.3f")
+}
+
+pub fn ensure_executable(path: &Path) -> Result<(), JobError> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| JobError::Other(format!("Failed to access script metadata: {}", e)))?;
+    let perms = metadata.permissions();
+
+    // Ensure user/group/other execute bit is set
+    if perms.mode() & 0o111 == 0 {
+        return Err(JobError::Other(format!(
+            "Script {} is not executable",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 pub fn get_timestamp_string() -> String {
-    use chrono::Local;
     Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
