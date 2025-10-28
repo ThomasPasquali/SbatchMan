@@ -1,3 +1,4 @@
+use chrono::Local;
 use chrono::{DateTime, NaiveDateTime, NaiveTime, ParseError, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -5,9 +6,9 @@ use std::fs::create_dir_all;
 use std::io::{Error, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use chrono::Local;
 
 use crate::core::database::models::Status;
+use crate::core::jobs::JobLog;
 use crate::core::{database::models::Job, jobs::JobError};
 
 pub fn map_err_adding_description(error: Error, description: &str) -> JobError {
@@ -22,103 +23,95 @@ pub fn get_timestamp() -> DateTime<Utc> {
   Utc::now()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type", content = "data")]
-pub enum JobLog {
-  Metadata(Job),
-  StatusUpdate(Status),
-  BashVariable(String), // The string must contain the bash variable name in the format "${VAR}"
-}
-
 /// Escapes a string for use within single quotes in a printf command
 /// Handles ${...} bash variables and $(...) command substitutions specially to allow expansion
 pub fn escape_for_printf(s: &str) -> String {
-    let mut result = String::new();
-    let mut chars = s.chars().peekable();
-    
-    while let Some(ch) = chars.next() {
-        match ch {
-            // Escape single quotes by ending the single-quoted string,
-            // adding an escaped single quote, and starting a new single-quoted string
-            '\'' => result.push_str("'\\''"),
-            // Escape backslashes for printf
-            '\\' => result.push_str("\\\\"),
-            // Handle ${...} and $(...) for bash expansion
-            '$' => {
-                match chars.peek() {
-                    Some(&'{') => {
-                        // Handle ${VAR} - close quote, add variable unquoted, reopen quote
-                        result.push_str("'\"${");
-                        chars.next(); // consume '{'
-                        
-                        // Copy until closing brace
-                        while let Some(inner_ch) = chars.next() {
-                            if inner_ch == '}' {
-                                result.push_str("}\"'");
-                                break;
-                            }
-                            result.push(inner_ch);
-                        }
-                    }
-                    Some(&'(') => {
-                        // Handle $(cmd) - close quote, add command substitution unquoted, reopen quote
-                        result.push_str("'\"$(");
-                        chars.next(); // consume '('
-                        
-                        let mut depth = 1;
-                        // Copy until matching closing paren, handling nested parens
-                        while let Some(inner_ch) = chars.next() {
-                            match inner_ch {
-                                '(' => {
-                                    depth += 1;
-                                    result.push(inner_ch);
-                                }
-                                ')' => {
-                                    depth -= 1;
-                                    if depth == 0 {
-                                        result.push_str(")\"'");
-                                        break;
-                                    }
-                                    result.push(inner_ch);
-                                }
-                                _ => result.push(inner_ch),
-                            }
-                        }
-                    }
-                    _ => result.push('$'),
-                }
+  let mut result = String::new();
+  let mut chars = s.chars().peekable();
+
+  while let Some(ch) = chars.next() {
+    match ch {
+      // Escape single quotes by ending the single-quoted string,
+      // adding an escaped single quote, and starting a new single-quoted string
+      '\'' => result.push_str("'\\''"),
+      // Escape backslashes for printf
+      '\\' => result.push_str("\\\\"),
+      // Handle ${...} and $(...) for bash expansion
+      '$' => {
+        match chars.peek() {
+          Some(&'{') => {
+            // Handle ${VAR} - close quote, add variable unquoted, reopen quote
+            result.push_str("'\"${");
+            chars.next(); // consume '{'
+
+            // Copy until closing brace
+            while let Some(inner_ch) = chars.next() {
+              if inner_ch == '}' {
+                result.push_str("}\"'");
+                break;
+              }
+              result.push(inner_ch);
             }
-            _ => result.push(ch),
+          }
+          Some(&'(') => {
+            // Handle $(cmd) - close quote, add command substitution unquoted, reopen quote
+            result.push_str("'\"$(");
+            chars.next(); // consume '('
+
+            let mut depth = 1;
+            // Copy until matching closing paren, handling nested parens
+            while let Some(inner_ch) = chars.next() {
+              match inner_ch {
+                '(' => {
+                  depth += 1;
+                  result.push(inner_ch);
+                }
+                ')' => {
+                  depth -= 1;
+                  if depth == 0 {
+                    result.push_str(")\"'");
+                    break;
+                  }
+                  result.push(inner_ch);
+                }
+                _ => result.push(inner_ch),
+              }
+            }
+          }
+          _ => result.push('$'),
         }
+      }
+      _ => result.push(ch),
     }
-    result
+  }
+  result
 }
 
 pub fn serialize_log_entry(log: JobLog, additional_data: Option<serde_json::Value>) -> Value {
-    let mut log_entry = match log {
-        JobLog::BashVariable(var_name) => {
-            json!({
-                "data": { var_name.clone(): format!("${{{}}}", var_name) },
-                "type": "BashVariable"
-            })
-        }
-        other => json!(other),
-    };
-
-    if let Some(data) = additional_data {
-        log_entry
-            .as_object_mut()
-            .unwrap()
-            .insert("additional".to_string(), data);
+  let mut log_entry = match log {
+    JobLog::BashVariable(var_name) => {
+      json!({
+          "data": { var_name.clone(): format!("${{{}}}", var_name) },
+          "type": "BashVariable"
+      })
     }
+    other => json!(other),
+  };
 
-    // Add timestamp placeholder
+  if let Some(data) = additional_data {
     log_entry
-        .as_object_mut()
-        .unwrap()
-        .insert("timestamp".to_string(), Value::String("__TIMESTAMP__".to_string()));
+      .as_object_mut()
+      .unwrap()
+      .insert("additional".to_string(), data);
+  }
 
-    log_entry
+  // Add timestamp placeholder
+  log_entry.as_object_mut().unwrap().insert(
+    "timestamp".to_string(),
+    Value::String("__TIMESTAMP__".to_string()),
+  );
+
+  log_entry
 }
 
 /// Parse time string in format "HH:MM:SS" or "D-HH:MM:SS" to seconds
@@ -145,26 +138,26 @@ pub fn parse_time_to_seconds(time_str: &str) -> Result<u64, JobError> {
 }
 
 pub fn parse_timestamp(timestamp: &str) -> Result<NaiveDateTime, ParseError> {
-    NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%.3f")
+  NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%.3f")
 }
 
 pub fn ensure_executable(path: &Path) -> Result<(), JobError> {
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| JobError::Other(format!("Failed to access script metadata: {}", e)))?;
-    let perms = metadata.permissions();
+  let metadata = std::fs::metadata(path)
+    .map_err(|e| JobError::Other(format!("Failed to access script metadata: {}", e)))?;
+  let perms = metadata.permissions();
 
-    // Ensure user/group/other execute bit is set
-    if perms.mode() & 0o111 == 0 {
-        return Err(JobError::Other(format!(
-            "Script {} is not executable",
-            path.display()
-        )));
-    }
-    Ok(())
+  // Ensure user/group/other execute bit is set
+  if perms.mode() & 0o111 == 0 {
+    return Err(JobError::Other(format!(
+      "Script {} is not executable",
+      path.display()
+    )));
+  }
+  Ok(())
 }
 
 pub fn get_timestamp_string() -> String {
-    Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+  Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
 /// Make a script file executable (Unix only)
@@ -183,3 +176,39 @@ pub fn make_script_executable(_script_path: &Path) -> Result<(), JobError> {
   // FIXME On non-Unix systems, scripts don't need executable permissions
   Ok(())
 }
+
+// pub fn get_variables_dependency(value: &String) -> Option<Vec<&str>> {
+//   let mut variables = Vec::new();
+//   let bytes = value.as_bytes();
+//   let mut i = 0;
+
+//   while i < bytes.len() {
+//     // Look for "${"
+//     if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+//       i += 2; // Skip past "${"
+//       let start = i;
+
+//       // Find the closing "}"
+//       while i < bytes.len() && bytes[i] != b'}' {
+//         i += 1;
+//       }
+
+//       if i < bytes.len() && bytes[i] == b'}' {
+//         // Extract the variable name
+//         let var_name = &value[start..i];
+//         if !var_name.is_empty() {
+//           variables.push(var_name);
+//         }
+//         i += 1; // Skip past "}"
+//       }
+//     } else {
+//       i += 1;
+//     }
+//   }
+
+//   if variables.is_empty() {
+//     None
+//   } else {
+//     Some(variables)
+//   }
+// }

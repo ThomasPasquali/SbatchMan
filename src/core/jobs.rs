@@ -2,7 +2,9 @@ mod local;
 mod pbs;
 mod slurm;
 mod utils;
+mod variables;
 mod r#virtual;
+use std::collections::HashMap;
 use std::io::Write;
 use std::{
   fs,
@@ -12,17 +14,22 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::core::jobs::utils::{escape_for_printf, get_timestamp_string};
+use crate::core::jobs::variables::{
+  CartesianGenerator, DependencyGraph, VariableResolver, substitute_and_evaluate,
+};
+use crate::core::parsers::variables::{CompleteVar, Variable};
 use crate::core::{
   cluster_configs::ClusterConfig,
   database::{
     Database,
     models::{Cluster, Config, Job, NewJob, Status},
   },
-  jobs::utils::{JobLog, map_err_adding_description, serialize_log_entry},
+  jobs::utils::{map_err_adding_description, serialize_log_entry},
   parsers::ParsedJob,
 };
 
@@ -64,6 +71,14 @@ pub enum JobError {
   ExecutionFailed(String),
   #[error("Generic Error: {0}")]
   Other(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type", content = "data")]
+pub enum JobLog {
+  Metadata(Job),
+  StatusUpdate(Status),
+  BashVariable(String), // The string must contain the bash variable name in the format "${VAR}"
 }
 
 impl Job {
@@ -141,45 +156,45 @@ impl Job {
   }
 
   /// Write a log entry to the job log file
-/// This logs complete job metadata with timestamps for database reconstruction
-pub fn write_log_entry(
+  /// This logs complete job metadata with timestamps for database reconstruction
+  pub fn write_log_entry(
     &self,
     log: JobLog,
     additional_data: Option<serde_json::Value>,
-) -> Result<(), JobError> {
+  ) -> Result<(), JobError> {
     let mut log_entry = serialize_log_entry(log, additional_data);
-    
+
     // Replace the placeholder with actual timestamp
     if let Some(obj) = log_entry.as_object_mut() {
-        obj.insert(
-            "timestamp".to_string(),
-            Value::String(get_timestamp_string()),
-        );
+      obj.insert(
+        "timestamp".to_string(),
+        Value::String(get_timestamp_string()),
+      );
     }
 
     // Append to log file
     let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(self.get_log_path())?;
+      .create(true)
+      .append(true)
+      .open(self.get_log_path())?;
 
     writeln!(file, "{}", serde_json::to_string(&log_entry).unwrap())?;
 
     Ok(())
-}
+  }
 
-/// Creates a bash command to add a log entry to the job log file
-/// This logs complete job metadata with timestamps for database reconstruction
-pub fn add_log_command(&self, script: &mut String, log: JobLog, additional_data: Option<Value>) {
+  /// Creates a bash command to add a log entry to the job log file
+  /// This logs complete job metadata with timestamps for database reconstruction
+  pub fn add_log_command(&self, script: &mut String, log: JobLog, additional_data: Option<Value>) {
     let job_log_path = self.get_log_path();
     let abs_path: PathBuf = if job_log_path.is_absolute() {
-        job_log_path.to_path_buf()
+      job_log_path.to_path_buf()
     } else {
-        std::env::current_dir()
-            .expect("Failed to get current dir")
-            .join(job_log_path)
-            .canonicalize()
-            .expect("Failed to canonicalize path")
+      std::env::current_dir()
+        .expect("Failed to get current dir")
+        .join(job_log_path)
+        .canonicalize()
+        .expect("Failed to canonicalize path")
     };
 
     let log_entry = serialize_log_entry(log, additional_data);
@@ -187,28 +202,84 @@ pub fn add_log_command(&self, script: &mut String, log: JobLog, additional_data:
 
     // The placeholder as it appears in the JSON string (with quotes)
     let placeholder_quoted = "\"__TIMESTAMP__\"";
-    
+
     // Find and split at the placeholder
-    let pos = json_str.find(placeholder_quoted)
-        .expect("Timestamp placeholder not found in JSON");
-    
+    let pos = json_str
+      .find(placeholder_quoted)
+      .expect("Timestamp placeholder not found in JSON");
+
     let before = &json_str[..pos];
     let after = &json_str[pos + placeholder_quoted.len()..];
 
     // Escape for printf, preserving ${...} for bash variable expansion
     let before_escaped = escape_for_printf(before);
     let after_escaped = escape_for_printf(after);
-    
+
     // Build the printf command
     // The timestamp must be outside quotes to be evaluated
     let printf_cmd = format!(
-        "printf '%s\"%s\"%s\\n' '{}' \"$(date +\"%Y-%m-%d %H:%M:%S.%3N\")\" '{}'",
-        before_escaped,
-        after_escaped
+      "printf '%s\"%s\"%s\\n' '{}' \"$(date +\"%Y-%m-%d %H:%M:%S.%3N\")\" '{}'",
+      before_escaped, after_escaped
     );
 
     script.push_str(&format!("\n{} >> {}\n", printf_cmd, abs_path.display()));
-}
+  }
+
+  pub fn generate_from(
+    cluster_config: &ClusterConfig,
+    variables: &Vec<Variable>,
+    command: String,
+    preprocess: Option<String>,
+    postprocess: Option<String>,
+    python_header: Option<String>,
+  ) -> Vec<Self> {
+    let var_map: HashMap<String, &CompleteVar> = variables
+      .iter()
+      .map(|v| (v.name.clone(), &v.contents))
+      .collect();
+
+    // Build dependency graph
+    let dep_graph = DependencyGraph::build(&command, &preprocess, &postprocess, &var_map);
+
+    // Resolve variables to their values for this cluster
+    let resolved_vars = VariableResolver::resolve_for_cluster(cluster_config, &var_map, &dep_graph);
+
+    // Generate all combinations
+    let combinations = CartesianGenerator::generate(&resolved_vars, &dep_graph);
+
+    // Create jobs for each combination
+    combinations
+      .into_iter()
+      .map(|combo| {
+        let substituted_command =
+          substitute_and_evaluate(&command, &combo, &var_map, &python_header);
+        let substituted_preprocess = preprocess
+          .as_ref()
+          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &python_header));
+        let substituted_postprocess = postprocess
+          .as_ref()
+          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &python_header));
+
+        Self {
+          // FIXME
+          id: 1234,
+          job_name: "FIXME".to_string(),
+          archived: None,
+          config_id: cluster_config.config.id,
+          directory: String::new(),
+          end_time: None,
+          submit_time: None,
+          status: Status::Created,
+          job_id: None,
+
+          command: substituted_command,
+          preprocess: substituted_preprocess,
+          postprocess: substituted_postprocess,
+          variables: json!(var_map),
+        }
+      })
+      .collect()
+  }
 }
 
 pub fn launch_jobs_from_file(

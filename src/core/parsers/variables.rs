@@ -4,8 +4,9 @@ use crate::core::parsers::ParserError;
 use crate::core::parsers::utils::value_from_str;
 use hashlink::LinkedHashMap;
 use saphyr::{ScalarOwned as YamlOwnedScalar, YamlOwned};
+use serde::Serialize;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub enum Scalar {
   String(String),
   Int(i64),
@@ -15,19 +16,19 @@ pub enum Scalar {
   Directory(String),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub enum BasicVar {
   Scalar(Scalar),
   List(Vec<Scalar>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct ClusterMap {
   pub default: Option<BasicVar>,
   pub per_cluster: HashMap<String, BasicVar>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub enum CompleteVar {
   Scalar(Scalar),
   List(Vec<Scalar>),

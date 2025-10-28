@@ -2,7 +2,7 @@ mod configs;
 mod includes;
 mod jobs;
 mod utils;
-mod variables;
+pub mod variables;
 
 #[cfg(test)]
 mod tests;

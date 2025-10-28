@@ -5,12 +5,17 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use crate::core::{
-  cluster_configs::ClusterConfig, jobs::{SchedulerTrait, local::LocalScheduler, tests::{create_test_cluster, create_test_config, create_test_job}, utils::parse_timestamp
-  }
+  cluster_configs::ClusterConfig,
+  jobs::{
+    SchedulerTrait,
+    local::LocalScheduler,
+    tests::{create_test_cluster, create_test_config, create_test_job},
+    utils::parse_timestamp,
+  },
 };
 
 fn as_u64_coerce(v: &serde_json::Value) -> Option<u64> {
-    v.as_u64().or_else(|| v.as_str()?.parse().ok())
+  v.as_u64().or_else(|| v.as_str()?.parse().ok())
 }
 
 // ============================================================================
@@ -29,10 +34,7 @@ fn test_job_launch() {
 
   assert!(
     local_scheduler
-      .launch_job(
-        &mut job,
-        &ClusterConfig::new(&cluster, &config)
-      )
+      .launch_job(&mut job, &ClusterConfig::new(&cluster, &config))
       .is_ok()
   );
 }
@@ -135,8 +137,8 @@ fn test_launch_job_failing_command() {
 
   // Job should complete but log the failure
   assert!(result.is_ok());
- 
- let entries = job.read_log_entries().unwrap();
+
+  let entries = job.read_log_entries().unwrap();
 
   let failed_status_update = entries
     .iter()
@@ -153,12 +155,9 @@ fn test_launch_job_failing_command() {
       .parse::<i32>()
       .is_ok()
   );
-  assert!(
-    as_u64_coerce(&bash_var_update["data"]["SBM_EXIT_CODE"]).is_some()
-  );
+  assert!(as_u64_coerce(&bash_var_update["data"]["SBM_EXIT_CODE"]).is_some());
   assert_eq!(
-    as_u64_coerce(&bash_var_update["data"]["SBM_EXIT_CODE"])
-      .unwrap(),
+    as_u64_coerce(&bash_var_update["data"]["SBM_EXIT_CODE"]).unwrap(),
     7
   );
 }
@@ -182,30 +181,35 @@ fn test_launch_job_with_timeout() {
 
   let entries = job.read_log_entries().unwrap();
 
-  let timeout_entry = entries.iter().find(|e| e["type"] == "StatusUpdate" && e["data"] == "Timeout");
+  let timeout_entry = entries
+    .iter()
+    .find(|e| e["type"] == "StatusUpdate" && e["data"] == "Timeout");
   assert!(timeout_entry.is_some());
 }
 
 #[test]
-    fn test_parse_valid_timestamp() {
-        let ts_str = "2025-10-28 09:40:12.366";
-        let dt = parse_timestamp(ts_str).expect("Failed to parse timestamp");
-        
-        assert_eq!(dt.year(), 2025);
-        assert_eq!(dt.month(), 10);
-        assert_eq!(dt.day(), 28);
-        assert_eq!(dt.hour(), 9);
-        assert_eq!(dt.minute(), 40);
-        assert_eq!(dt.second(), 12);
-        assert_eq!(dt.and_utc().timestamp_subsec_millis(), 366);
-    }
+fn test_parse_valid_timestamp() {
+  let ts_str = "2025-10-28 09:40:12.366";
+  let dt = parse_timestamp(ts_str).expect("Failed to parse timestamp");
 
-    #[test]
-    fn test_parse_invalid_timestamp() {
-        let bad_ts = "2025/10/28 09:40:12"; // Wrong format
-        let result = parse_timestamp(bad_ts);
-        assert!(result.is_err(), "Expected parsing to fail for invalid format");
-    }
+  assert_eq!(dt.year(), 2025);
+  assert_eq!(dt.month(), 10);
+  assert_eq!(dt.day(), 28);
+  assert_eq!(dt.hour(), 9);
+  assert_eq!(dt.minute(), 40);
+  assert_eq!(dt.second(), 12);
+  assert_eq!(dt.and_utc().timestamp_subsec_millis(), 366);
+}
+
+#[test]
+fn test_parse_invalid_timestamp() {
+  let bad_ts = "2025/10/28 09:40:12"; // Wrong format
+  let result = parse_timestamp(bad_ts);
+  assert!(
+    result.is_err(),
+    "Expected parsing to fail for invalid format"
+  );
+}
 
 #[test]
 fn test_launch_job_logs_duration() {
@@ -230,11 +234,11 @@ fn test_launch_job_logs_duration() {
     .find(|e| e["type"] == "StatusUpdate" && e["data"] == "Running")
     .unwrap();
   let start = parse_timestamp(start_entry["timestamp"].as_str().unwrap()).unwrap();
-  
+
   let end_entry = entries
-  .iter()
-  .find(|e| e["type"] == "StatusUpdate" && e["data"] == "Completed")
-  .unwrap();
+    .iter()
+    .find(|e| e["type"] == "StatusUpdate" && e["data"] == "Completed")
+    .unwrap();
   let end = parse_timestamp(end_entry["timestamp"].as_str().unwrap()).unwrap();
 
   let duration_ms = (end - start).num_milliseconds();
