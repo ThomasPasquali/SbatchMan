@@ -7,10 +7,10 @@ include: recursive_vars.yaml
 
 variables:
   # Directory, each file is a value.
-  dataset: "@dir datasets/"
+  dataset: !dir datasets/
 
   # File, each line is a value.
-  mode: "@file modes.txt"
+  mode: !file modes.txt
 
   # Explicit values list. Same as ["impl1", "impl2", "impl3"].
   implementation:

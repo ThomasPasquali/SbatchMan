@@ -1,0 +1,23 @@
+# special_types.yaml
+# Tests for special variable types: directory, file, and tagged python code.
+
+variables:
+  dataset_dir: !dir datasets/images
+
+  gpu_list: !file gpus.txt
+
+  generated_values: !python |
+    # This Python code generates a list of values
+    base = 10
+    return [base * i for i in range(1, 6)]
+  
+  single_value: !python |
+    # This Python code returns a single value
+    return "single_generated_value"
+  
+  reference_existing: !python |
+    # This Python code references existing variables
+    dataset_count = len($dataset_dir)
+    if dataset_count == 0:
+      return "No datasets found"
+    return f"Number of datasets: {dataset_count}"

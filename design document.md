@@ -199,8 +199,11 @@ Variables can be used for generating multiple cluster configurations and job var
   * Standard maps: key-value pairs, where the value can be referenced using the key. Values can be either simple types or lists.
   * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. When referencing a cluster map, the value corresponding to the current cluster is used. Differently from standard maps, a default value can also be specified. Values can be either simple types or lists.
   * Special types:
-    * `@dir path`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
-    * `@file path`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
+    * `!dir path`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
+    * `!file path`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
+    * `!python code`: A special directive that allows defining variables using Python code. The code is executed, and the returned value is used as the variable's value. The code can return either a single value or a list of values. Inside the Python code, existing variables can be referenced by prefixing them with a `$` sign.
+    > [!IMPORTANT]
+    > When using the `!python` directive, ensure that the Python environment has access to any necessary libraries or modules required by the code snippet and that the referenced variables are defined when the code is executed. Moreover, use the `|` syntax to define multi-line code and ensure proper indentation.
 
 Valid characters for variable names include the uppercase and lowercase letters (A-Z and a-z), the underscore _ and, except for the first character, the digits 0 through 9.
 
@@ -219,9 +222,6 @@ Variables can be referenced in the following fields:
   - Jobs config file: `command`, `preprocess`, `postprocess`, `name`, `cluster_config`
 
 **Substitution syntax:** To use variables in a field, use the `{var}` notation. For standard maps, use the syntax `{map[key]}`. If the key itself is a variable, prefix it with `$`, for example: `{map[$var]}`.
-
-### Python Blocks
-In the **job configuration file**, when basic variable substitution isn’t sufficient, Sbatchman allows you to embed Python code directly within the YAML file to generate dynamic values or lists. To include a Python block, wrap the code in `{{ ... }}` brackets within a field. Sbatchman variables can be referenced inside the python block by prefixing them with a `$` sign. A Python block can return either a single value or a list. If a list is returned, Sbatchman automatically creates multiple job variants - one for each value in the list, similar to how list variables work. Other return types are not supported.
 
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
@@ -248,8 +248,8 @@ variables:
 
   ncpus: [4, 8]
 
-  datasets: @dir datasets/ # directory, each file is a value
-  scales: @file scales.txt # file, each line is a value
+  datasets: !dir datasets/ # directory, each file is a value
+  scales: !file scales.txt # file, each line is a value
 ```
 
 ```yaml
@@ -290,21 +290,21 @@ clusters:
 ```yaml
 # jobs.yaml
 include: variables.yaml
-python:
-  header: "import os\ndef my_func(x):\n  return x * 2"
 
 variables:
-  dataset_dir: @dir datasets/images
-  gpu_list: @file gpus.txt
+  dataset_dir: !dir datasets/images
+  gpu_list: !file gpus.txt
   python_command: python3.10
   runs: [100, 200]
+  matrix_size: !python |
+    {runs} * 10
   flags:
     default: ['--flag_default']
     per_cluster:
-      "clusterA": ['--flag1', '--flag2'],
+      "clusterA": ['--flag1', '--flag2']
       "clusterB": ['--flag3']
 
-command: python run.py --input {dataset_dir} --runs {runs} --gpus {gpu_list} {flags}
+command: python run.py --input {dataset_dir} --runs {runs} --gpus {gpu_list} {flags} {matrix_size}
 preprocess: echo "Preparing dataset {dataset_dir}"
 postprocess: echo "Cleaning up after {dataset_dir}"
 

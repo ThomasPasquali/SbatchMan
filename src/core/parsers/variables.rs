@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use crate::core::parsers::ParserError;
+use crate::core::parsers::{ParserError, utils::to_string};
 use crate::core::parsers::utils::value_from_str;
 use hashlink::LinkedHashMap;
-use saphyr::{ScalarOwned as YamlOwnedScalar, YamlOwned};
+use saphyr::{ScalarOwned as YamlOwnedScalar, Tag, YamlOwned};
 use serde::Serialize;
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -14,6 +14,7 @@ pub enum Scalar {
   Bool(bool),
   File(String),
   Directory(String),
+  Python(String),
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -55,23 +56,39 @@ macro_rules! wrong_type_err {
   };
 }
 
-/// Parse a scalar YAML node into Scalar enum. Includes special handling for @file and @dir prefixes.
-fn parse_scalar<'a>(s: &'a YamlOwnedScalar) -> Result<Scalar, ParserError> {
+/// Parse a scalar YAML node into Scalar enum.
+fn parse_scalar(s: &YamlOwnedScalar) -> Result<Scalar, ParserError> {
   match s {
     YamlOwnedScalar::String(s) => {
-      if s.starts_with("@file ") {
-        Ok(Scalar::File(s["@file ".len()..].to_string()))
-      } else if s.starts_with("@dir ") {
-        Ok(Scalar::Directory(s["@dir ".len()..].to_string()))
-      } else {
-        Ok(Scalar::String(s.to_string()))
-      }
+      Ok(Scalar::String(s.to_string()))
     }
     YamlOwnedScalar::Integer(i) => Ok(Scalar::Int(*i)),
     YamlOwnedScalar::FloatingPoint(f) => Ok(Scalar::Float(**f)),
     YamlOwnedScalar::Boolean(b) => Ok(Scalar::Bool(*b)),
     _ => {
       return Err(wrong_type_err!(s, "string, integer, float, or boolean"));
+    }
+  }
+}
+
+/// Parse a tagged YAML node into Scalar enum. Handles !file, !dir, and !python tags.
+fn parse_tagged(tag: &Tag, s: &YamlOwned) -> Result<Scalar, ParserError> {
+  match tag.suffix.as_str() {
+    "file" => {
+      let path = to_string(s)?;
+      Ok(Scalar::File(path.to_string()))
+    }
+    "dir" => {
+      let path = to_string(s)?;
+      Ok(Scalar::Directory(path.to_string()))
+    }
+    "python" => {
+      let code = to_string(s)?;
+      println!("{code}");
+      Ok(Scalar::Python(code.to_string()))
+    }
+    _ => {
+      return Err(wrong_type_err!(tag, "unknown tag"));
     }
   }
 }
@@ -83,7 +100,10 @@ fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, Parser
     match item {
       YamlOwned::Value(s) => {
         scalars.push(parse_scalar(s)?);
-      }
+      },
+      YamlOwned::Tagged(tag, s) => {
+        scalars.push(parse_tagged(tag, s)?);
+      },
       _ => {
         return Err(wrong_type_err!(item, "scalar"));
       }
@@ -102,6 +122,7 @@ fn parse_mapping(
     let key_str = k.as_str().ok_or(wrong_type_err!(k, "string"))?;
     let basic_var = match v {
       YamlOwned::Value(s) => BasicVar::Scalar(parse_scalar(s)?),
+      YamlOwned::Tagged(tag, s) => BasicVar::Scalar(parse_tagged(tag, s)?),
       YamlOwned::Sequence(seq) => BasicVar::List(parse_sequence_of_scalars(seq)?),
       _ => {
         return Err(wrong_type_err!(v, "scalar or list"));
@@ -117,6 +138,7 @@ fn parse_mapping(
 fn parse_basic_var(yaml: &YamlOwned) -> Result<BasicVar, ParserError> {
   match yaml {
     YamlOwned::Value(s) => Ok(BasicVar::Scalar(parse_scalar(s)?)),
+    YamlOwned::Tagged(tag, s) => Ok(BasicVar::Scalar(parse_tagged(tag, s)?)),
     YamlOwned::Sequence(seq) => Ok(BasicVar::List(parse_sequence_of_scalars(seq)?)),
     _ => {
       return Err(wrong_type_err!(yaml, "scalar or list"));
@@ -144,6 +166,7 @@ pub fn parse_variables(yaml: &YamlOwned) -> Result<HashMap<String, Variable>, Pa
       // Determine the type of variable based on the YAML object
       contents: match v {
         YamlOwned::Value(s) => parse_scalar(s).map(CompleteVar::Scalar)?,
+        YamlOwned::Tagged(tag, s) => parse_tagged(tag, s).map(CompleteVar::Scalar)?,
         YamlOwned::Sequence(seq) => parse_sequence_of_scalars(seq).map(CompleteVar::List)?,
         YamlOwned::Mapping(map) => {
           // Check for "per_cluster" key to determine if it's a ClusterMap

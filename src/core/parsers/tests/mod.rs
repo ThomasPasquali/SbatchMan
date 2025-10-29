@@ -177,6 +177,46 @@ fn test_get_include_variables_include_number() {
   ));
 }
 
+
+#[test]
+fn test_special_types() {
+  let path = get_test_path("special_types.yaml");
+
+  let result = get_include_variables(&path);
+  assert!(result.is_ok());
+  let variables = result.unwrap();
+
+  assert_eq!(variables.len(), 5);
+
+  // Test !dir
+  assert!(
+    matches!(variables["dataset_dir"].contents, CompleteVar::Scalar(Scalar::Directory(ref s)) if s == "datasets/images")
+  );
+
+  // Test !file
+  assert!(
+    matches!(variables["gpu_list"].contents, CompleteVar::Scalar(Scalar::File(ref s)) if s == "gpus.txt")
+  );
+
+  // Test !python with multiline string
+  let expected_python_code1 = "# This Python code generates a list of values\nbase = 10\nreturn [base * i for i in range(1, 6)]\n";
+  assert!(
+    matches!(variables["generated_values"].contents, CompleteVar::Scalar(Scalar::Python(ref s)) if s == expected_python_code1)
+  );
+
+  // Test !python with single line string
+  let expected_python_code2 = "# This Python code returns a single value\nreturn \"single_generated_value\"\n";
+  assert!(
+    matches!(variables["single_value"].contents, CompleteVar::Scalar(Scalar::Python(ref s)) if s == expected_python_code2)
+  );
+
+  // Test !python with variable reference
+  let expected_python_code3 = "# This Python code references existing variables\ndataset_count = len($dataset_dir)\nif dataset_count == 0:\n  return \"No datasets found\"\nreturn f\"Number of datasets: {dataset_count}\"\n";
+  assert!(
+    matches!(variables["reference_existing"].contents, CompleteVar::Scalar(Scalar::Python(ref s)) if s == expected_python_code3)
+  );
+}
+
 #[test]
 fn test_get_include_variables_include_missing_file() {
   let path = get_test_path("include_missing_file.yaml");

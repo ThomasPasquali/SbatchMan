@@ -399,6 +399,7 @@ pub fn scalar_to_string(scalar: &Scalar) -> Option<String> {
     Scalar::Bool(b) => Some(b.to_string()),
     Scalar::File(f) => Some(f.clone()),
     Scalar::Directory(d) => Some(d.clone()),
+    Scalar::Python(code) => Some(code.clone()),
   }
 }
 
