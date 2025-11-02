@@ -649,4 +649,3 @@ fn test_file_and_directory_types() {
   assert_eq!(jobs.len(), 1);
   assert_eq!(jobs[0].command, "process input.txt in /data");
 }
-

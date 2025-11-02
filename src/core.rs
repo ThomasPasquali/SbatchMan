@@ -1,5 +1,5 @@
 mod cluster_configs;
-mod database;
+pub mod database;
 mod jobs;
 mod parsers;
 mod sbatchman_configs;

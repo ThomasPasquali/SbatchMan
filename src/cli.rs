@@ -1,7 +1,10 @@
 mod utils;
 use std::env;
 
-use crate::core::{self, Sbatchman};
+use crate::{
+  core::{self, Sbatchman},
+  tui::launch_tui,
+};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -25,6 +28,7 @@ enum Commands {
     file: String,
     cluster_name: Option<String>,
   },
+  TUI {},
 }
 
 pub fn main() {
@@ -63,6 +67,7 @@ pub fn main() {
           .launch_jobs_from_file(file, cluster)
           .expect("Failed to launch jobs from file");
       }
+      Some(Commands::TUI {}) => launch_tui().expect("Failed to launch TUI"),
       None => {}
     }
   }

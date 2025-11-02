@@ -72,11 +72,12 @@ The TUI provides the primary interactive experience for the user.
     * **TUI Rendering:** `Ratatui`
     * *(Inspiration: [MAIF/yozefu](https://github.com/MAIF/yozefu))*
   * **Features:**
-    * **Job Monitoring:** View lists of active, queued, and archived jobs with real-time updates and pagination support.
-    * **Log Viewer:** Directly view the `stdout`/`stderr` logs for any selected job.
+    * **Job Monitoring:** View lists of active, queued, finished jobs with real-time updates.
+    * **Log Viewer:** Directly view the `stdout`/`stderr` logs for any selected job. Long logs will be paginated.
     * **Job Management:** Perform operations on jobs (e.g., cancel, archive, re-run).
     * **Advanced Filtering:** Apply filters to narrow down the list of displayed jobs.
-    * **Configuration Management:** View and manage cluster configurations stored in the database.
+    * **Configuration Monitoring:** View cluster configurations stored in the database.
+    * **Achieves Monitoring and Management:** View job archives and manage them (rename, delete, merge, move jobs from an archive back to the "non-archived" state)
 
 ### Python Library
 

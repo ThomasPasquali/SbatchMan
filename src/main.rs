@@ -1,5 +1,6 @@
 mod cli;
-mod core;
+pub mod core;
+mod tui;
 
 fn main() {
   cli::main();

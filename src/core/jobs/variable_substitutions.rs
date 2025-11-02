@@ -257,59 +257,59 @@ pub struct VariableResolver;
 
 impl VariableResolver {
   pub fn resolve_for_cluster(
-  cluster_config: &ClusterConfig,
-  var_map: &HashMap<String, &CompleteVar>,
-  dep_graph: &DependencyGraph,
-) -> HashMap<String, Vec<String>> {
-  let mut resolved = HashMap::new();
-  
-  for (name, var) in var_map {
-    match var {
-      CompleteVar::Scalar(scalar) => {
-        // Convert scalar to single-element vector
-        if let Some(s) = scalar_to_string(scalar) {
-          resolved.insert(name.clone(), vec![s]);
+    cluster_config: &ClusterConfig,
+    var_map: &HashMap<String, &CompleteVar>,
+    dep_graph: &DependencyGraph,
+  ) -> HashMap<String, Vec<String>> {
+    let mut resolved = HashMap::new();
+
+    for (name, var) in var_map {
+      match var {
+        CompleteVar::Scalar(scalar) => {
+          // Convert scalar to single-element vector
+          if let Some(s) = scalar_to_string(scalar) {
+            resolved.insert(name.clone(), vec![s]);
+          }
         }
-      }
-      CompleteVar::List(list) => {
-        // Convert list items to strings
-        let values: Vec<String> = list
-          .iter()
-          .filter_map(|item| scalar_to_string(item))
-          .collect();
-        if !values.is_empty() {
-          resolved.insert(name.clone(), values);
+        CompleteVar::List(list) => {
+          // Convert list items to strings
+          let values: Vec<String> = list
+            .iter()
+            .filter_map(|item| scalar_to_string(item))
+            .collect();
+          if !values.is_empty() {
+            resolved.insert(name.clone(), values);
+          }
         }
-      }
-      CompleteVar::StandardMap(_) => {
-        // Maps are not included - they're used for lookups, not expansion
-      }
-      CompleteVar::ClusterMap(cluster_map) => {
-        // Extract values for the current cluster
-        if let Some(basic_var) = cluster_map.get(&cluster_config.cluster.cluster_name) {
-          match basic_var {
-            BasicVar::Scalar(scalar) => {
-              if let Some(s) = scalar_to_string(scalar) {
-                resolved.insert(name.clone(), vec![s]);
+        CompleteVar::StandardMap(_) => {
+          // Maps are not included - they're used for lookups, not expansion
+        }
+        CompleteVar::ClusterMap(cluster_map) => {
+          // Extract values for the current cluster
+          if let Some(basic_var) = cluster_map.get(&cluster_config.cluster.cluster_name) {
+            match basic_var {
+              BasicVar::Scalar(scalar) => {
+                if let Some(s) = scalar_to_string(scalar) {
+                  resolved.insert(name.clone(), vec![s]);
+                }
               }
-            }
-            BasicVar::List(list) => {
-              let values: Vec<String> = list
-                .iter()
-                .filter_map(|item| scalar_to_string(item))
-                .collect();
-              if !values.is_empty() {
-                resolved.insert(name.clone(), values);
+              BasicVar::List(list) => {
+                let values: Vec<String> = list
+                  .iter()
+                  .filter_map(|item| scalar_to_string(item))
+                  .collect();
+                if !values.is_empty() {
+                  resolved.insert(name.clone(), values);
+                }
               }
             }
           }
         }
       }
     }
+
+    resolved
   }
-  
-  resolved
-}
 
   fn resolve_variable(cluster_config: &ClusterConfig, var: &CompleteVar) -> Vec<String> {
     match var {
@@ -412,7 +412,7 @@ impl Substitutor {
   ) -> String {
     // First substitute maps (which may reference variables)
     let after_maps = Self::substitute_maps(template, values, var_map);
-    
+
     // Then substitute simple variables
     Self::substitute_simple(&after_maps, values)
   }
