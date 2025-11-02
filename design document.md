@@ -259,30 +259,38 @@ include: variables.yaml
 clusters:
   clusterA:
     scheduler: slurm
+    variables:
+      mem: !python |
+        if "{partition}" == "partition_cpu_A":
+          return 16000 * int({ncpus})
+        else:
+          return 32000 * int({ncpus})
     defaults:
       account: "example_default_account"
+      extra_options: "--gres=gpu:1"
+      env:
+        EXAMPLE_ENV_VAR: 1
     configs:
-      - name: job_{partition}_{ncpus}
-        params:
-          partition: "{partition}"
-          qos: "{qos[$partition]}"
-          cpus_per_task: "{ncpus}"
-          mem: ["4G", "8G", "16G"]
-          time: "01:00:00"
-        options:
-          - "-G 10"
+      - name: job_${partition}_${ncpus}
+        partition: "${partition}"
+        qos: "${qos}[${partition}]"
+        cpus_per_task: "${ncpus}"
+        mem: "{mem}"
+        time: "01:00:00"
+        extra_options: "--exclusive"
         env:
-          - "DATASET={dataset}"
-          - "OMP_NUM_THREADS={ncpus}"
+          OMP_NUM_THREADS: "${ncpus}"
+        variables:
+          dataset: "ab"
+          scale: "12"
 
   clusterB:
     scheduler: pbs
     configs:
-      - name: "mem_job_{mem}"
-        options:
-          - "--cpus: 2"
-          - "--mem: {mem}"
-          - "--walltime: 01:00:00"
+      - name: "mem_job_${mem}"
+        mem: "${mem}"
+        walltime: "01:00:00"
+        cpus: "${ncpus}"
 ```
 
 ### Example: Job Configuration (`jobs.yaml`)
