@@ -27,7 +27,7 @@ CREATE TABLE jobs (
   postprocess TEXT,
   -- FIXME exit_code INTEGER,
   archived INTEGER DEFAULT 0,
-  variables TEXT NOT NULL,
+  variables TEXT NOT NULL
 );
 
 CREATE TABLE virtualqueue (
