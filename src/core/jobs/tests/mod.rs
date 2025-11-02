@@ -12,7 +12,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 mod local;
-mod variables;
+mod variable_substitutions;
 
 fn create_test_job(id: i32, directory: &str) -> Job {
   Job {

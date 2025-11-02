@@ -177,7 +177,6 @@ fn test_get_include_variables_include_number() {
   ));
 }
 
-
 #[test]
 fn test_special_types() {
   let path = get_test_path("special_types.yaml");
@@ -205,7 +204,8 @@ fn test_special_types() {
   );
 
   // Test !python with single line string
-  let expected_python_code2 = "# This Python code returns a single value\nreturn \"single_generated_value\"\n";
+  let expected_python_code2 =
+    "# This Python code returns a single value\nreturn \"single_generated_value\"\n";
   assert!(
     matches!(variables["single_value"].contents, CompleteVar::Scalar(Scalar::Python(ref s)) if s == expected_python_code2)
   );

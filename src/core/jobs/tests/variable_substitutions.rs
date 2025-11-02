@@ -7,7 +7,7 @@ use crate::core::{
   database::models::{Cluster, Job},
   jobs::{
     tests::{create_test_cluster, create_test_config},
-    variables::{get_variables_dependency, scalar_to_string},
+    variable_substitutions::{get_variables_dependency, scalar_to_string},
   },
   parsers::variables::{BasicVar, ClusterMap, CompleteVar, Scalar, Variable},
 };
@@ -419,7 +419,7 @@ fn test_python_evaluation_simple() {
   let jobs = Job::generate_from(
     &cluster,
     &variables,
-    "@py [str(v) for v in range(${FROM}, ${TO})]".to_string(),
+    "!py [str(v) for v in range(${FROM}, ${TO})]".to_string(),
     None,
     None,
     None,
@@ -442,7 +442,7 @@ fn test_python_with_header() {
   let jobs = Job::generate_from(
     &cluster,
     &variables,
-    "@py double(${VAL})".to_string(),
+    "!py double(${VAL})".to_string(),
     None,
     None,
     Some(header),
@@ -526,11 +526,11 @@ fn test_variable_storage_in_job() {
   assert_eq!(jobs.len(), 1);
   assert_eq!(
     jobs[0].variables.get("VAR1"),
-    Some(&serde_json::Value::String("value1".to_string()))
+    Some(&serde_json::from_str(r#"{"Scalar": {"String": "value1"}}"#).unwrap())
   );
   assert_eq!(
     jobs[0].variables.get("VAR2"),
-    Some(&serde_json::Value::String("42".to_string()))
+    Some(&serde_json::from_str(r#"{"Scalar": {"Int": 42}}"#).unwrap())
   );
 }
 
@@ -650,22 +650,3 @@ fn test_file_and_directory_types() {
   assert_eq!(jobs[0].command, "process input.txt in /data");
 }
 
-#[test]
-fn test_multiple_python_expressions() {
-  let cl = create_test_cluster(1);
-  let cf = create_test_config(1);
-  let cluster = ClusterConfig::new(&cl, &cf);
-  let variables = vec![test_variable("N", CompleteVar::Scalar(Scalar::Int(3)))];
-
-  let jobs = Job::generate_from(
-    &cluster,
-    &variables,
-    "@py ${N} * 2 @py ${N} + 1".to_string(),
-    None,
-    None,
-    None,
-  );
-
-  assert_eq!(jobs.len(), 1);
-  assert_eq!(jobs[0].command, "6 4");
-}

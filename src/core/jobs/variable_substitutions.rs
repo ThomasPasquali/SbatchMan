@@ -1,5 +1,5 @@
 use std::{
-  collections::HashMap,
+  collections::{HashMap, HashSet},
   ffi::{CStr, CString},
 };
 
@@ -14,23 +14,100 @@ pub fn substitute_and_evaluate(
   template: &str,
   values: &HashMap<String, String>,
   var_map: &HashMap<String, &CompleteVar>,
+  dep_graph: &DependencyGraph,
   python_header: &Option<String>,
 ) -> String {
+  // First, add all dependent variables to the values map
+  let mut all_values = values.clone();
+
+  // Add dependent variables by resolving them from var_map
+  for (var_name, var) in var_map {
+    if !all_values.contains_key(var_name) && dep_graph.has_dependencies(var_name) {
+      // This is a dependent variable, get its initial value
+      if let Some(initial_value) = get_initial_value(var) {
+        all_values.insert(var_name.clone(), initial_value);
+      }
+    }
+  }
+
+  // Recursively resolve all dependencies
+  let resolved_values = resolve_dependencies(&all_values, dep_graph);
+
   // First, substitute simple variables
-  let mut result = Substitutor::substitute_simple(template, values);
+  let mut result = Substitutor::substitute_simple(template, &resolved_values);
 
   // Then, substitute map references
-  result = Substitutor::substitute_maps(&result, values, var_map);
+  result = Substitutor::substitute_maps(&result, &resolved_values, var_map);
 
   // Finally, evaluate Python expressions
-  if result.contains("@py") {
+  if result.contains("!py") {
     result = PythonEvaluator::evaluate(&result, python_header);
   }
 
   result
 }
 
+fn get_initial_value(var: &CompleteVar) -> Option<String> {
+  match var {
+    CompleteVar::Scalar(s) => scalar_to_string(s),
+    CompleteVar::List(list) => {
+      // For lists, we shouldn't be here in the cartesian product phase
+      // But if we are, just take the first value
+      list.first().and_then(|s| scalar_to_string(s))
+    }
+    CompleteVar::StandardMap(_) | CompleteVar::ClusterMap(_) => {
+      // Maps don't have direct values
+      None
+    }
+  }
+}
+
+fn resolve_dependencies(
+  values: &HashMap<String, String>,
+  dep_graph: &DependencyGraph,
+) -> HashMap<String, String> {
+  let mut resolved = values.clone();
+  let mut changed = true;
+  let mut iterations = 0;
+  const MAX_ITERATIONS: usize = 100; // Prevent infinite loops
+
+  while changed && iterations < MAX_ITERATIONS {
+    changed = false;
+    iterations += 1;
+
+    // Get a sorted list of variables to process
+    // (we need deterministic ordering for consistent results)
+    let mut var_names: Vec<_> = resolved.keys().cloned().collect();
+    var_names.sort();
+
+    for var_name in var_names {
+      // Check if this variable has dependencies
+      if dep_graph.has_dependencies(&var_name) {
+        let current_value = resolved.get(&var_name).unwrap().clone();
+
+        // Try to substitute dependencies in the current value
+        let new_value = Substitutor::substitute_simple(&current_value, &resolved);
+
+        // If the value changed, mark that we need another iteration
+        if new_value != current_value {
+          resolved.insert(var_name, new_value);
+          changed = true;
+        }
+      }
+    }
+  }
+
+  if iterations >= MAX_ITERATIONS {
+    eprintln!(
+      "Warning: Maximum dependency resolution iterations reached. Possible circular dependency."
+    );
+  }
+
+  resolved
+}
+
 // Module for tracking variable dependencies
+#[derive(Debug)]
 pub struct DependencyGraph {
   dependencies: HashMap<String, Vec<String>>,
 }
@@ -180,19 +257,59 @@ pub struct VariableResolver;
 
 impl VariableResolver {
   pub fn resolve_for_cluster(
-    cluster_config: &ClusterConfig,
-    var_map: &HashMap<String, &CompleteVar>,
-    dep_graph: &DependencyGraph,
-  ) -> HashMap<String, Vec<String>> {
-    let mut resolved = HashMap::new();
-
-    for (name, var) in var_map {
-      let values = Self::resolve_variable(cluster_config, var);
-      resolved.insert(name.clone(), values);
+  cluster_config: &ClusterConfig,
+  var_map: &HashMap<String, &CompleteVar>,
+  dep_graph: &DependencyGraph,
+) -> HashMap<String, Vec<String>> {
+  let mut resolved = HashMap::new();
+  
+  for (name, var) in var_map {
+    match var {
+      CompleteVar::Scalar(scalar) => {
+        // Convert scalar to single-element vector
+        if let Some(s) = scalar_to_string(scalar) {
+          resolved.insert(name.clone(), vec![s]);
+        }
+      }
+      CompleteVar::List(list) => {
+        // Convert list items to strings
+        let values: Vec<String> = list
+          .iter()
+          .filter_map(|item| scalar_to_string(item))
+          .collect();
+        if !values.is_empty() {
+          resolved.insert(name.clone(), values);
+        }
+      }
+      CompleteVar::StandardMap(_) => {
+        // Maps are not included - they're used for lookups, not expansion
+      }
+      CompleteVar::ClusterMap(cluster_map) => {
+        // Extract values for the current cluster
+        if let Some(basic_var) = cluster_map.get(&cluster_config.cluster.cluster_name) {
+          match basic_var {
+            BasicVar::Scalar(scalar) => {
+              if let Some(s) = scalar_to_string(scalar) {
+                resolved.insert(name.clone(), vec![s]);
+              }
+            }
+            BasicVar::List(list) => {
+              let values: Vec<String> = list
+                .iter()
+                .filter_map(|item| scalar_to_string(item))
+                .collect();
+              if !values.is_empty() {
+                resolved.insert(name.clone(), values);
+              }
+            }
+          }
+        }
+      }
     }
-
-    resolved
   }
+  
+  resolved
+}
 
   fn resolve_variable(cluster_config: &ClusterConfig, var: &CompleteVar) -> Vec<String> {
     match var {
@@ -225,11 +342,17 @@ impl CartesianGenerator {
   pub fn generate(
     resolved_vars: &HashMap<String, Vec<String>>,
     dep_graph: &DependencyGraph,
+    command: &String,
+    preprocess: &Option<String>,
+    postprocess: &Option<String>,
   ) -> Vec<HashMap<String, String>> {
-    // Separate independent and dependent variables
+    // Get all used variables
+    let used_vars = get_all_variable_dependencies(dep_graph, command, &preprocess, &postprocess);
+
+    // Only consider independent variables that are actually used
     let independent_vars: HashMap<_, _> = resolved_vars
       .iter()
-      .filter(|(name, values)| !dep_graph.has_dependencies(name) && !values.is_empty())
+      .filter(|(name, _)| used_vars.contains(*name) && !dep_graph.has_dependencies(name))
       .map(|(k, v)| (k.clone(), v.clone()))
       .collect();
 
@@ -282,6 +405,18 @@ impl CartesianGenerator {
 pub struct Substitutor;
 
 impl Substitutor {
+  pub fn substitute(
+    template: &str,
+    values: &HashMap<String, String>,
+    var_map: &HashMap<String, &CompleteVar>,
+  ) -> String {
+    // First substitute maps (which may reference variables)
+    let after_maps = Self::substitute_maps(template, values, var_map);
+    
+    // Then substitute simple variables
+    Self::substitute_simple(&after_maps, values)
+  }
+
   fn substitute_simple(template: &str, values: &HashMap<String, String>) -> String {
     let mut result = template.to_string();
 
@@ -303,6 +438,7 @@ impl Substitutor {
     // Pattern: ${MAP_VAR}[${KEY_VAR}] or ${MAP_VAR}[literal_key]
     let re = regex::Regex::new(r"\$\{([^}]+)\}\[([^\]]+)\]").unwrap();
 
+    // Keep substituting until no more changes (handles nested substitutions)
     loop {
       let mut changed = false;
 
@@ -313,9 +449,11 @@ impl Substitutor {
 
           // Resolve the key expression
           let key = if key_expr.starts_with("${") && key_expr.ends_with("}") {
+            // Variable key: ${KEY_VAR}
             let key_var = &key_expr[2..key_expr.len() - 1];
             values.get(key_var).map(|s| s.as_str()).unwrap_or("")
           } else {
+            // Literal key
             key_expr
           };
 
@@ -326,13 +464,14 @@ impl Substitutor {
               return match basic_var {
                 BasicVar::Scalar(s) => scalar_to_string(s).unwrap_or_default(),
                 BasicVar::List(_) => {
-                  // Lists in maps need special handling
+                  // Lists in maps would need expansion - for now keep the pattern
                   format!("${{{}}}[{}]", map_name, key)
                 }
               };
             }
           }
 
+          // If no substitution happened, return original
           caps[0].to_string()
         })
         .to_string();
@@ -353,7 +492,7 @@ impl PythonEvaluator {
   fn evaluate(template: &str, python_header: &Option<String>) -> String {
     Python::attach(|py| {
       let mut result = template.to_string();
-      let re = regex::Regex::new(r"@py\s+((?s).*?)(?:@py|$)").unwrap();
+      let re = regex::Regex::new(r"!py\s+((?s).*?)(?:!py|$)").unwrap();
 
       for caps in re.captures_iter(template) {
         let expr = caps[1].trim();
@@ -403,6 +542,38 @@ pub fn scalar_to_string(scalar: &Scalar) -> Option<String> {
   }
 }
 
+pub fn get_all_variable_dependencies(
+  dep_graph: &DependencyGraph,
+  command: &String,
+  preprocess: &Option<String>,
+  postprocess: &Option<String>,
+) -> HashSet<String> {
+  let mut used = HashSet::new();
+
+  // Collect directly referenced variables
+  for expr in [&Some(command.to_owned()), preprocess, postprocess].iter() {
+    if let Some(comm) = expr {
+      if let Some(vars) = get_variables_dependency(comm) {
+        for v in vars {
+          used.insert(v.to_string());
+        }
+      }
+    }
+  }
+
+  // Expand transitively
+  let mut queue: Vec<_> = used.clone().into_iter().collect();
+  while let Some(var) = queue.pop() {
+    for dep in dep_graph.get_dependencies(&var) {
+      if used.insert(dep.clone()) {
+        queue.push(dep.clone());
+      }
+    }
+  }
+
+  used
+}
+
 pub fn get_variables_dependency(value: &String) -> Option<Vec<&str>> {
   let mut variables = Vec::new();
   let bytes = value.as_bytes();
@@ -434,4 +605,24 @@ pub fn get_variables_dependency(value: &String) -> Option<Vec<&str>> {
   } else {
     Some(variables)
   }
+}
+
+pub fn recursive_substitute(value: &str, vars: &HashMap<String, String>) -> String {
+  let mut result = value.to_string();
+  loop {
+    let mut changed = false;
+    let mut new_value = result.clone();
+    for (name, val) in vars {
+      let pattern = format!("${{{}}}", name);
+      if new_value.contains(&pattern) {
+        new_value = new_value.replace(&pattern, val);
+        changed = true;
+      }
+    }
+    if !changed {
+      break;
+    }
+    result = new_value;
+  }
+  result
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::core::parsers::{ParserError, utils::to_string};
 use crate::core::parsers::utils::value_from_str;
+use crate::core::parsers::{ParserError, utils::to_string};
 use hashlink::LinkedHashMap;
 use saphyr::{ScalarOwned as YamlOwnedScalar, Tag, YamlOwned};
 use serde::Serialize;
@@ -27,6 +27,12 @@ pub enum BasicVar {
 pub struct ClusterMap {
   pub default: Option<BasicVar>,
   pub per_cluster: HashMap<String, BasicVar>,
+}
+
+impl ClusterMap {
+  pub fn get(&self, cluster_name: &String) -> Option<&BasicVar> {
+    self.per_cluster.get(cluster_name).or(self.default.as_ref())
+  }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -59,9 +65,7 @@ macro_rules! wrong_type_err {
 /// Parse a scalar YAML node into Scalar enum.
 fn parse_scalar(s: &YamlOwnedScalar) -> Result<Scalar, ParserError> {
   match s {
-    YamlOwnedScalar::String(s) => {
-      Ok(Scalar::String(s.to_string()))
-    }
+    YamlOwnedScalar::String(s) => Ok(Scalar::String(s.to_string())),
     YamlOwnedScalar::Integer(i) => Ok(Scalar::Int(*i)),
     YamlOwnedScalar::FloatingPoint(f) => Ok(Scalar::Float(**f)),
     YamlOwnedScalar::Boolean(b) => Ok(Scalar::Bool(*b)),
@@ -100,10 +104,10 @@ fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, Parser
     match item {
       YamlOwned::Value(s) => {
         scalars.push(parse_scalar(s)?);
-      },
+      }
       YamlOwned::Tagged(tag, s) => {
         scalars.push(parse_tagged(tag, s)?);
-      },
+      }
       _ => {
         return Err(wrong_type_err!(item, "scalar"));
       }

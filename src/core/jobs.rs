@@ -2,7 +2,7 @@ mod local;
 mod pbs;
 mod slurm;
 mod utils;
-mod variables;
+mod variable_substitutions;
 mod r#virtual;
 use std::collections::HashMap;
 use std::io::Write;
@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::core::jobs::utils::{escape_for_printf, get_timestamp_string};
-use crate::core::jobs::variables::{
+use crate::core::jobs::variable_substitutions::{
   CartesianGenerator, DependencyGraph, VariableResolver, substitute_and_evaluate,
 };
 use crate::core::parsers::variables::{CompleteVar, Variable};
@@ -245,24 +245,30 @@ impl Job {
     let resolved_vars = VariableResolver::resolve_for_cluster(cluster_config, &var_map, &dep_graph);
 
     // Generate all combinations
-    let combinations = CartesianGenerator::generate(&resolved_vars, &dep_graph);
+    let combinations = CartesianGenerator::generate(
+      &resolved_vars,
+      &dep_graph,
+      &command,
+      &preprocess,
+      &postprocess,
+    );
 
     // Create jobs for each combination
     combinations
       .into_iter()
       .map(|combo| {
         let substituted_command =
-          substitute_and_evaluate(&command, &combo, &var_map, &python_header);
+          substitute_and_evaluate(&command, &combo, &var_map, &dep_graph, &python_header);
         let substituted_preprocess = preprocess
           .as_ref()
-          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &python_header));
+          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &dep_graph, &python_header));
         let substituted_postprocess = postprocess
           .as_ref()
-          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &python_header));
+          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &dep_graph, &python_header));
 
         Self {
           // FIXME
-          id: 1234,
+          id: 0,
           job_name: "FIXME".to_string(),
           archived: None,
           config_id: cluster_config.config.id,
