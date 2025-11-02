@@ -5,17 +5,20 @@ use saphyr::{LoadableYamlNode, ScalarOwned, YamlOwned};
 
 use crate::core::parsers::ParserError;
 
-pub fn value_from_str(s: &str) -> YamlOwned {
+/// Convert a string to a YAML node
+pub(crate) fn value_from_str(s: &str) -> YamlOwned {
   YamlOwned::Value(ScalarOwned::String(s.to_string()))
 }
 
-pub fn yaml_lookup<'a>(node: &'a YamlOwned, key: &str) -> Option<&'a YamlOwned> {
+/// Lookup a YAML mapping by key
+pub(crate) fn yaml_lookup<'a>(node: &'a YamlOwned, key: &str) -> Option<&'a YamlOwned> {
   if let YamlOwned::Mapping(map) = node {
     return map.get(&value_from_str(key));
   }
   None
 }
 
+/// Convert YAML node to string
 pub fn to_string(yaml: &YamlOwned) -> Result<String, ParserError> {
   match yaml.as_str() {
     Some(s) => Ok(s.to_string()),
@@ -26,6 +29,7 @@ pub fn to_string(yaml: &YamlOwned) -> Result<String, ParserError> {
   }
 }
 
+/// Convert YAML node to sequence
 pub fn to_sequence<'a>(yaml: &'a YamlOwned) -> Result<&'a Vec<YamlOwned>, ParserError> {
   match yaml {
     YamlOwned::Sequence(seq) => Ok(seq),
@@ -36,6 +40,19 @@ pub fn to_sequence<'a>(yaml: &'a YamlOwned) -> Result<&'a Vec<YamlOwned>, Parser
   }
 }
 
+pub fn to_mapping<'a>(
+  yaml: &'a YamlOwned,
+) -> Result<&'a LinkedHashMap<YamlOwned, YamlOwned>, ParserError> {
+  match yaml {
+    YamlOwned::Mapping(map) => Ok(map),
+    _ => Err(ParserError::WrongType(
+      format!("{:?}", yaml),
+      "mapping".to_string(),
+    )),
+  }
+}
+
+/// Lookup mapping by key and return string
 pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
   match yaml_lookup(yaml, key) {
     Some(value) => to_string(value),
@@ -43,6 +60,7 @@ pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
   }
 }
 
+/// Lookup mapping by key and return sequence
 pub fn lookup_sequence<'a>(
   yaml: &'a YamlOwned,
   key: &str,
@@ -53,6 +71,7 @@ pub fn lookup_sequence<'a>(
   }
 }
 
+/// Lookup a mapping by key and return a map
 pub fn lookup_mapping<'a>(
   yaml: &'a YamlOwned,
   key: &str,

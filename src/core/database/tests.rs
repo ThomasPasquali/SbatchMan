@@ -8,7 +8,7 @@ fn get_set_config() {
   let dir = init_sbatchman_for_tests();
   let mut db = Database::new(&dir.path().to_path_buf()).unwrap();
   let new_cluster = NewCluster {
-    cluster_name: "test_cluster",
+    cluster_name: "test_cluster".to_string(),
     scheduler: Scheduler::Local,
     max_jobs: Some(10),
   };
@@ -18,10 +18,10 @@ fn get_set_config() {
   let env = serde_json::json!({"env1": "value1", "env2": "value2"});
 
   let new_config = NewConfig {
-    config_name: "test_config",
+    config_name: "test_config".to_string(),
     cluster_id: cluster.id,
-    flags: &flags,
-    env: &env,
+    flags: flags,
+    env: env,
   };
   db.create_cluster_config(&new_config).unwrap();
   let configs = db.get_configs_by_cluster(&cluster).unwrap();
@@ -34,7 +34,7 @@ fn create_cluster_same_name() {
   let mut db = Database::new(&dir.path().to_path_buf()).unwrap();
 
   let new_cluster = NewCluster {
-    cluster_name: "duplicate_cluster",
+    cluster_name: "duplicate_cluster".to_string(),
     scheduler: Scheduler::Local,
     max_jobs: Some(10),
   };

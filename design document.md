@@ -260,12 +260,12 @@ include: variables.yaml
 clusters:
   clusterA:
     scheduler: slurm
-    variables:
-      mem: !python |
-        if "{partition}" == "partition_cpu_A":
-          return 16000 * int({ncpus})
-        else:
-          return 32000 * int({ncpus})
+      variables:
+        mem: !python |
+          if "{partition}" == "partition_cpu_A":
+            return 16000 * int({ncpus})
+          else:
+            return 32000 * int({ncpus})
     defaults:
       account: "example_default_account"
       extra_options: "--gres=gpu:1"
@@ -273,17 +273,18 @@ clusters:
         EXAMPLE_ENV_VAR: 1
     configs:
       - name: job_${partition}_${ncpus}
-        partition: "${partition}"
-        qos: "${qos}[${partition}]"
-        cpus_per_task: "${ncpus}"
-        mem: "{mem}"
-        time: "01:00:00"
-        extra_options: "--exclusive"
-        env:
-          OMP_NUM_THREADS: "${ncpus}"
         variables:
           dataset: "ab"
           scale: "12"
+        params:
+          partition: "${partition}"
+          qos: "${qos}[${partition}]"
+          cpus_per_task: "${ncpus}"
+          mem: "{mem}"
+          time: "01:00:00"
+          extra_options: "--exclusive"
+          env:
+            OMP_NUM_THREADS: "${ncpus}"
 
   clusterB:
     scheduler: pbs

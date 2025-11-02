@@ -158,12 +158,10 @@ macro_rules! yaml_str {
 }
 
 /// Main function to parse variables from a YAML node
-pub fn parse_variables(yaml: &YamlOwned) -> Result<HashMap<String, Variable>, ParserError> {
-  let mut variables: HashMap<String, Variable> = HashMap::new();
+pub fn parse_variables(yaml: &LinkedHashMap<YamlOwned, YamlOwned>) -> Result<LinkedHashMap<String, Variable>, ParserError> {
+  let mut variables: LinkedHashMap<String, Variable> = LinkedHashMap::new();
   // Ensure the top-level YAML is a mapping
-  let map = yaml.as_mapping().ok_or(wrong_type_err!(yaml, "mapping"))?;
-
-  for (k, v) in map.iter() {
+  for (k, v) in yaml.iter() {
     let k = k.as_str().ok_or(wrong_type_err!(k, "string"))?;
     let v = Variable {
       name: k.to_string(),

@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use serde_json::json;
 
 use crate::core::cluster_configs::ClusterConfig;
@@ -7,12 +6,10 @@ use crate::core::jobs::{JobLog, utils::*};
 use crate::core::{database::models::Job, jobs::SchedulerTrait};
 
 use super::JobError;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
 pub struct LocalScheduler {

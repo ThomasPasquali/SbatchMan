@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::core::{cluster_configs::ClusterConfig, database::models::Job, jobs::SchedulerTrait};
 
 use super::JobError;

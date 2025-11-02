@@ -61,8 +61,8 @@ pub struct Cluster {
 #[derive(Insertable)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(table_name = clusters)]
-pub struct NewCluster<'a> {
-  pub cluster_name: &'a str,
+pub struct NewCluster {
+  pub cluster_name: String,
   pub scheduler: Scheduler,
   pub max_jobs: Option<i32>,
 }
@@ -80,16 +80,16 @@ pub struct Config {
 
 #[derive(Insertable)]
 #[diesel(table_name = configs)]
-pub struct NewConfig<'a> {
-  pub config_name: &'a str,
+pub struct NewConfig {
+  pub config_name: String,
   pub cluster_id: i32,
-  pub flags: &'a serde_json::Value,
-  pub env: &'a serde_json::Value,
+  pub flags: serde_json::Value,
+  pub env: serde_json::Value,
 }
 
-pub struct NewClusterConfig<'a> {
-  pub cluster: NewCluster<'a>,
-  pub configs: Vec<NewConfig<'a>>,
+pub struct NewClusterConfig {
+  pub cluster: NewCluster,
+  pub configs: Vec<NewConfig>,
 }
 
 #[repr(i32)]

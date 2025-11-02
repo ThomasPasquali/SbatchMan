@@ -1,7 +1,4 @@
 # variables.yaml
-# Defines reusable variables for configurations and jobs.
-# This is an example of strong scaling experiments.
-# These include different datasets, modes (user defined semantic), implementations (and related args)
 
 include: recursive_vars.yaml
 
