@@ -216,7 +216,7 @@ When defining jobs, the following special variables are also available:
 
 ### Substitutions
 Variables can be referenced in the following fields:
-  - Clusters config file: `name`, `params`, `options`, `env`
+  - Clusters config file: `name`, all fields inside `params` and `defaults`
     Configuration names must be unique within each cluster.
     > [!IMPORTANT]
     > If you use variables that generate lists, make sure to include those variables in the `name` field as well, so that each configuration has a unique name.
