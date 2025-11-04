@@ -16,10 +16,11 @@
 
 ### Architecture
 
-The system is composed of three primary components:
+The system is composed of four primary components:
 
   * **Rust Core:** An efficient engine responsible for all core logic, including configuration parsing, job scheduling and state management.
   * **TUI Frontend:** An interactive terminal application for real-time job monitoring and management.
+  * **CLI**
   * **Python Library:** A Python wrapper around the Rust core, enabling scripting and integration with other Python libraries for data analysis and plotting.
 
 ## Technical Specification
@@ -35,33 +36,33 @@ Here’s your markdown table transformed into a clean unordered list:
 - [x] **`set_cluster_name(path: &PathBuf, name: &str)`**: Sets the cluster name in the `sbatchman.conf` file located at the specified path. *Return type:* `Result<()>`
 - [x] **`get_cluster_name(path: &PathBuf)`**: Retrieves the cluster name from the `sbatchman.conf` file located at the specified path. *Return type:* `Result<String>`
 - [ ] **`import_clusters_configs_from_file(path: &str)`**: Imports cluster configurations from a YAML file into the database. *Return type:* `Result<()>`
-- **`run_jobs_from_file(path: &str)`**: Parses and launches all jobs defined in a job configuration file.
+- [ ] **`run_jobs_from_file(path: &str)`**: Parses and launches all jobs defined in a job configuration file.
   *Return type:* `Result<()>`
 
-- **`parse_jobs_from_file(path: &str)`**: Parses a job configuration file and returns the generated jobs without launching them.
+- [ ] **`parse_jobs_from_file(path: &str)`**: Parses a job configuration file and returns the generated jobs without launching them.
   *Return type:* `Result<Vec<Job>>`
 
-- **`launch_jobs(jobs: &[Job])`**: Submits a slice of `Job` objects to the appropriate cluster schedulers.
+- [ ] **`launch_jobs(jobs: &[Job])`**: Submits a slice of `Job` objects to the appropriate cluster schedulers.
   *Return type:* `Result<()>`
 
-- **`get_jobs(filter: JobFilter)`**: Retrieves a list of jobs from the database that match the filter criteria.
+- [ ] **`get_jobs(filter: JobFilter)`**: Retrieves a list of jobs from the database that match the filter criteria.
   *Return type:* `Result<Vec<Job>>`
 
-- **`export_jobs(filter: JobFilter, path: &str)`**: Exports jobs matching the filter (including results) to a `.zip` file.
+- [ ] **`export_jobs(filter: JobFilter, path: &str)`**: Exports jobs matching the filter (including results) to a `.zip` file.
   *Return type:* `Result<()>`
 
-- **`import_jobs(path: &str)`**: Imports jobs from a `.zip` archive into the database.
+- [ ] **`import_jobs(path: &str)`**: Imports jobs from a `.zip` archive into the database.
   *Return type:* `Result<()>`
 
   *Return type:* `Result<()>`
 
-- **`get_cluster_config(name: &str)`**: Retrieves a specific cluster configuration by name.
+- [ ] **`get_cluster_config(name: &str)`**: Retrieves a specific cluster configuration by name.
 
-- **`migrate_db(path: &str)`**: Applies necessary schema migrations to the database.
+- [ ] **`migrate_db(path: &str)`**: Applies necessary schema migrations to the database.
   *Return type:* `Result<()>`
 
 ### Generated script
-A generated bash script is created for each job to handle metadata and job submission, and postprocessing. This script is stored in the job's directory and executed when the job is run. The job directory will contain a log files with all the job metadata and updates (e.g. job status) this shall also contain timestamps so, for example, the waiting time and job duration can be computed (to the millisecond). In general, these logs will allow to reconstruct the whole database if it gets corrupted.
+A generated bash script is created for each job to handle metadata and job submission, and pre/postprocessing. This script is stored in the job's directory and executed when the job is run. The job directory will contain a log files with all the job metadata and updates (e.g. job status) this shall also contain timestamps so, for example, the waiting time and job duration can be computed (to the millisecond). In general, these logs will allow to reconstruct the whole database if it gets corrupted.
 
 ### TUI Frontend
 
@@ -99,8 +100,8 @@ The primary directory structure for `sbatchman` is as follows:
 ├── sbatchman.db            # SQLite database file
 ├── jobs/                   # Directory containing job output directories
 │   ├── <job_id_1>/         # Output directory for job with ID <job_id_1> (ID assigned by the database)
-│   │   ├── metadata.txt    # Metadata
-│   │   ├── run.sh          # Generated job script
+│   │   ├── log.jsonb       # Metadata and Logs
+│   │   ├── job.sh          # Generated job script
 │   │   ├── stdout.log      # Standard output log
 │   │   ├── stderr.log      # Standard error log
 │   │   ├── results/        # Directory containing job results
@@ -165,10 +166,10 @@ Jobs can be queried from the database using a flexible filter specification.
 
 ```rust
 pub struct JobFilter {
-  pub name: Option<String>,
-  pub status: Option<JobStatus>,
-  pub cluster: Option<String>,
-  pub config: Option<String>,
+  pub name: Option<Vec<String>>,
+  pub status: Option<Vec<JobStatus>>,
+  pub cluster: Option<Vec<String>>,
+  pub config: Option<Vec<String>>,
   pub archived: Option<bool>,
   pub submit_time_range: Option<(NaiveDateTime, NaiveDateTime)>,
   pub end_time_range: Option<(NaiveDateTime, NaiveDateTime)>,
@@ -214,6 +215,10 @@ When defining jobs, the following special variables are also available:
   * `config_name`: The name of the cluster configuration being used.
   * `cluster_name`: The name of the cluster being used.
 
+These work the same way as other variables. If the user defines a variable using a reserved name, ann error will be raised.
+
+**Note: variable names are case-insensitive.**
+
 ### Substitutions
 Variables can be referenced in the following fields:
   - Clusters config file: `name`, all fields inside `params` and `defaults`
@@ -222,7 +227,7 @@ Variables can be referenced in the following fields:
     > If you use variables that generate lists, make sure to include those variables in the `name` field as well, so that each configuration has a unique name.
   - Jobs config file: `command`, `preprocess`, `postprocess`, `name`, `cluster_config`
 
-**Substitution syntax:** To use variables in a field, use the `{var}` notation. For standard maps, use the syntax `{map[key]}`. If the key itself is a variable, prefix it with `$`, for example: `{map[$var]}`.
+**Substitution syntax:** To use variables in a field, use the `${var}` notation. For standard maps, use the syntax `${map}[key]`. If the key itself is a variable, prefix it with `$`, for example: `${map}[${var}]`.
 
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
@@ -262,17 +267,20 @@ clusters:
     scheduler: slurm
       variables:
         mem: !python |
-          if "{partition}" == "partition_cpu_A":
-            return 16000 * int({ncpus})
+          if "${partition}" == "partition_cpu_A":
+            return 16000 * int(${ncpus})
           else:
-            return 32000 * int({ncpus})
-    defaults:
+            return 32000 * int(${ncpus})
+    default_params:
       account: "example_default_account"
-      extra_options: "--gres=gpu:1"
+      extra_params: "--gres=gpu:1"
+      extra_commands:
+        - "./my-custom-command"
+        - "module load openmpi"
       env:
         EXAMPLE_ENV_VAR: 1
     configs:
-      - name: job_${partition}_${ncpus}
+      - name: "job_${partition}_${ncpus}"
         variables:
           dataset: "ab"
           scale: "12"
@@ -280,9 +288,9 @@ clusters:
           partition: "${partition}"
           qos: "${qos}[${partition}]"
           cpus_per_task: "${ncpus}"
-          mem: "{mem}"
+          mem: "${mem}"
           time: "01:00:00"
-          extra_options: "--exclusive"
+          extra_params: "--exclusive"
           env:
             OMP_NUM_THREADS: "${ncpus}"
 
@@ -290,9 +298,10 @@ clusters:
     scheduler: pbs
     configs:
       - name: "mem_job_${mem}"
-        mem: "${mem}"
-        walltime: "01:00:00"
-        cpus: "${ncpus}"
+        params:
+          mem: "${mem}"
+          walltime: "01:00:00"
+          cpus: "${ncpus}"
 ```
 
 ### Example: Job Configuration (`jobs.yaml`)
