@@ -1,5 +1,10 @@
+.vscode
+
 /target
 Cargo.lock
+
 *.db
-.vscode
+
+# Test outputs
 test_job/
+test_job_timeout/

@@ -163,9 +163,13 @@ fn parse_cluster(
 
   let configs = lookup_sequence(cluster, "configs")?;
   for config in configs.iter() {
-    parsed_cluster
-      .configs
-      .push(parse_config(config, &scheduler, top_variables, &cluster_variables, &cluster_params)?);
+    parsed_cluster.configs.push(parse_config(
+      config,
+      &scheduler,
+      top_variables,
+      &cluster_variables,
+      &cluster_params,
+    )?);
   }
 
   Ok(parsed_cluster)

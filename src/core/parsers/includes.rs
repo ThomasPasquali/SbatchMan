@@ -37,7 +37,9 @@ fn push_file_to_include_list(
 }
 
 /// Collect all variables from included YAML files. The function performs a depth-first traversal of includes. Variables from later includes override those earlier ones.
-pub fn get_include_variables<'a>(root: &Path) -> Result<LinkedHashMap<String, Variable>, ParserError> {
+pub fn get_include_variables<'a>(
+  root: &Path,
+) -> Result<LinkedHashMap<String, Variable>, ParserError> {
   // Keep track of included files to prevent circular includes
   let mut included_files = vec![];
   // Start with the initial file

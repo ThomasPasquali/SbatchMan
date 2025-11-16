@@ -1,15 +1,17 @@
 use std::fs;
 
 use chrono::{Datelike, Timelike};
+use serde::Deserialize;
 use serde_json::json;
 use tempfile::TempDir;
 
 use crate::core::{
   cluster_configs::ClusterConfig,
+  database::models::Status,
   jobs::{
-    SchedulerTrait,
+    JobLog, SchedulerTrait,
     local::LocalScheduler,
-    tests::{create_test_cluster, create_test_config, create_test_job},
+    tests::{create_test_cluster, create_test_config, create_test_config_timeout, create_test_job},
     utils::parse_timestamp,
   },
 };
@@ -36,6 +38,30 @@ fn test_job_launch() {
     local_scheduler
       .launch_job(&mut job, &ClusterConfig::new(&cluster, &config))
       .is_ok()
+  );
+}
+
+#[test]
+fn test_job_launch_timeout() {
+  let path = "./test_job_timeout";
+  let _ = fs::remove_dir_all(path);
+  let mut job = create_test_job(1, path);
+  job.command = String::from("sleep 2");
+  let config = create_test_config_timeout(1, 1);
+  let cluster = create_test_cluster(1);
+
+  let local_scheduler = LocalScheduler::default();
+  let res = local_scheduler.launch_job(&mut job, &ClusterConfig::new(&cluster, &config));
+
+  assert!(res.is_ok());
+  let logs = job.read_log_entries().expect("Could not read logs");
+  assert!(
+    logs.iter().any(
+      |s| serde_json::from_value::<JobLog>(s.clone()).is_ok_and(|log| match log {
+        JobLog::StatusUpdate(Status::Timeout) => true,
+        _ => false,
+      })
+    )
   );
 }
 
@@ -138,23 +164,26 @@ fn test_launch_job_failing_command() {
   // Job should complete but log the failure
   assert!(result.is_ok());
 
-  let entries = job.read_log_entries().unwrap();
+  let entries = job.read_log_entries().expect("Could not read log");
 
-  let failed_status_update = entries
+  entries
     .iter()
     .find(|e| e["type"] == "StatusUpdate" && e["data"] == "Failed")
-    .unwrap();
+    .expect("Could not find Failed update log");
   let bash_var_update = entries
     .iter()
     .find(|e| e["type"] == "BashVariable" && e["data"].get("SBM_EXIT_CODE").is_some())
-    .unwrap();
+    .expect("Could not find exit code log");
+  let pid_update = entries
+    .iter()
+    .find(|e| {
+      e["type"] == "Variable"
+        && e["data"].is_array()
+        && e["data"].as_array().unwrap()[0].as_str() == Some("PID")
+    })
+    .expect("Could not find exit code log");
 
-  assert!(
-    failed_status_update["additional"]["pid"]
-      .to_string()
-      .parse::<i32>()
-      .is_ok()
-  );
+  assert!(as_u64_coerce(&pid_update["data"].as_array().unwrap()[1]).unwrap() as i64 > 0);
   assert!(as_u64_coerce(&bash_var_update["data"]["SBM_EXIT_CODE"]).is_some());
   assert_eq!(
     as_u64_coerce(&bash_var_update["data"]["SBM_EXIT_CODE"]).unwrap(),

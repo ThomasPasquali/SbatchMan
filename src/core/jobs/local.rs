@@ -33,11 +33,7 @@ impl LocalScheduler {
 
   /// Submit a job locally with optional timeout
   /// Returns (pid, exit_code, timed_out)
-  fn local_submit(
-    &self,
-    job: &Job,
-    time_limit: Option<&str>,
-  ) -> Result<(u32, Option<i32>, bool), JobError> {
+  fn local_submit(&self, job: &Job) -> Result<(u32, Option<i32>, bool), JobError> {
     let stdout_file = File::create(job.get_stdout_path())
       .map_err(|e| map_err_adding_description(e, "Failed to create stdout log: {}"))?;
     let stderr_file = File::create(job.get_stderr_path())
@@ -47,15 +43,7 @@ impl LocalScheduler {
     ensure_executable(&script_path)?;
 
     // Prepare the command (with or without timeout)
-    let mut cmd = if let Some(time_str) = time_limit {
-      let timeout_seconds = parse_time_to_seconds(time_str)?;
-      let mut c = Command::new("timeout");
-      c.arg(timeout_seconds.to_string()).arg(script_path);
-      c
-    } else {
-      Command::new(script_path)
-    };
-
+    let mut cmd = Command::new(script_path);
     cmd
       .stdout(Stdio::from(stdout_file))
       .stderr(Stdio::from(stderr_file));
@@ -66,7 +54,6 @@ impl LocalScheduler {
       .spawn()
       .map_err(|e| JobError::SpawnError(format!("Failed to spawn process: {}", e)))?;
 
-    job.write_log_entry(JobLog::StatusUpdate(Status::Running), None)?;
     let pid = child.id();
 
     let output = child
@@ -78,13 +65,11 @@ impl LocalScheduler {
     // println!("succc {:#?}", output.success());
     // println!("stdout:{:#?}", job.get_stdout());
     // println!("stderr:{:#?}", job.get_stderr());
-    let timed_out = exit_code == Some(124); // "timeout" command exit code
-
     // println!("SCRIPT\n{}", job.get_script()?);
     // println!("CODE {:?}", exit_code);
     // println!("LOG {:?}", job.get_log()?);
 
-    Ok((pid, exit_code, timed_out))
+    Ok((pid, exit_code, exit_code == Some(124)))
   }
 }
 
@@ -98,15 +83,27 @@ impl SchedulerTrait for LocalScheduler {
 
     cluster_config.add_environment_variables(&mut script);
 
-    job.add_job_commands(&mut script);
+    script.push_str("\n# Status update");
+    job.add_log_command(&mut script, JobLog::StatusUpdate(Status::Running), None);
 
+    // Extract time limit from config flags if present
+    let time_limit = cluster_config.config.flags.get("time").and_then(|v| {
+      if let Some(s_str) = v.as_str() {
+        parse_time_to_seconds(s_str).map_or(None, |s| Some(s))
+      } else {
+        None
+      }
+    });
+    job.add_job_commands(&mut script, time_limit);
+
+    script.push_str("\n# Export EXIT CODE");
     job.add_log_command(
       &mut script,
       JobLog::BashVariable("SBM_EXIT_CODE".to_string()),
       None,
     );
 
-    script.push_str("exit \"${SBM_EXIT_CODE}\"");
+    script.push_str("\nexit \"${SBM_EXIT_CODE}\"");
 
     Ok(script)
   }
@@ -140,36 +137,15 @@ impl SchedulerTrait for LocalScheduler {
 
     job.write_log_entry(JobLog::StatusUpdate(Status::Created), None)?;
 
-    // Extract time limit from config flags if present
-    let time_limit = cluster_config
-      .config
-      .flags
-      .get("time")
-      .and_then(|v| v.as_str());
-
     // Launch the job with full logging
-    let (pid, exit_code, timed_out) = self.local_submit(job, time_limit)?;
+    let (pid, exit_code, _) = self.local_submit(job)?;
+    job.write_log_entry(JobLog::Variable(String::from("PID"), pid.to_string()), None)?;
 
-    // FIXME should be done better
-    let status = if timed_out {
-      Status::Timeout
-    } else if let Some(code) = exit_code {
-      if code == 0 {
-        Status::Completed
-      } else {
-        Status::Failed
-      }
+    return if exit_code.is_none() {
+      Err(JobError::ExecutionFailed("Could not run job".to_string()))
     } else {
-      Status::FailedSubmission // FIXME Especially this
+      Ok(())
     };
-    job.write_log_entry(
-      JobLog::StatusUpdate(status.clone()),
-      json!({"pid": pid}).into(),
-    )?;
-    match status {
-      Status::FailedSubmission => Err(JobError::ExecutionFailed("Could not run job".to_string())),
-      _ => Ok(()),
-    }
   }
 
   fn get_number_of_enqueued_jobs(&self) -> Result<usize, JobError> {

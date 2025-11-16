@@ -79,12 +79,13 @@ pub enum JobLog {
   Metadata(Job),
   StatusUpdate(Status),
   BashVariable(String), // The string must contain the bash variable name in the format "${VAR}"
+  Variable(String, String),
 }
 
 impl Job {
   /// Add preprocessing, main command, and postprocessing to script
   /// This is used by all schedulers to construct the job execution flow
-  pub fn add_job_commands(&self, script: &mut String) {
+  pub fn add_job_commands(&self, script: &mut String, time_limit: Option<u64>) {
     // Add preprocessing if present
     if let Some(preprocess) = &self.preprocess {
       if !preprocess.is_empty() {
@@ -96,8 +97,20 @@ impl Job {
 
     // Add the main command
     script.push_str("\n# Main command\n");
+    if let Some(time_s) = time_limit {
+      script.push_str(format!("timeout {} ", time_s).as_str());
+    }
     script.push_str(&self.command);
-    script.push_str("\n\nSBM_EXIT_CODE=$?");
+    script.push_str("\n\nSBM_EXIT_CODE=$?\n");
+
+    script.push_str("\n# Status update\n");
+    script.push_str("if [ $SBM_EXIT_CODE -eq 0 ]; then");
+    self.add_log_command(script, JobLog::StatusUpdate(Status::Completed), None);
+    script.push_str("elif [ $SBM_EXIT_CODE -eq 124 ]; then");
+    self.add_log_command(script, JobLog::StatusUpdate(Status::Timeout), None);
+    script.push_str("else");
+    self.add_log_command(script, JobLog::StatusUpdate(Status::Failed), None);
+    script.push_str("fi\n");
 
     // Add postprocessing if present
     if let Some(postprocess) = &self.postprocess {

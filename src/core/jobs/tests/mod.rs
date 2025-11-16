@@ -42,6 +42,16 @@ fn create_test_config(id: i32) -> Config {
   }
 }
 
+fn create_test_config_timeout(id: i32, timeout_s: u32) -> Config {
+  Config {
+    id,
+    config_name: "test_config".to_string(),
+    cluster_id: 1,
+    flags: json!({"time": format!("00:00:{:02}", timeout_s)}),
+    env: json!({}),
+  }
+}
+
 fn create_test_cluster(id: i32) -> Cluster {
   Cluster {
     id,
@@ -210,7 +220,7 @@ fn test_add_job_commands_only_main() {
   let mut script = String::new();
   let job = create_test_job(1, temp_dir.path().to_str().unwrap());
 
-  job.add_job_commands(&mut script);
+  job.add_job_commands(&mut script, None);
 
   assert!(script.contains("# Main command"));
   assert!(script.contains("echo 'Hello World'"));
@@ -225,7 +235,7 @@ fn test_add_job_commands_with_preprocessing() {
   let mut job = create_test_job(1, temp_dir.path().to_str().unwrap());
   job.preprocess = Some("echo 'Starting preprocessing'".to_string());
 
-  job.add_job_commands(&mut script);
+  job.add_job_commands(&mut script, None);
 
   assert!(script.contains("# Preprocessing"));
   assert!(script.contains("echo 'Starting preprocessing'"));
@@ -239,7 +249,7 @@ fn test_add_job_commands_with_postprocessing() {
   let mut job = create_test_job(1, temp_dir.path().to_str().unwrap());
   job.postprocess = Some("echo 'Cleanup complete'".to_string());
 
-  job.add_job_commands(&mut script);
+  job.add_job_commands(&mut script, None);
 
   assert!(script.contains("# Main command"));
   assert!(script.contains("# Postprocessing"));
@@ -254,7 +264,7 @@ fn test_add_job_commands_full_pipeline() {
   job.preprocess = Some("echo 'Pre'".to_string());
   job.postprocess = Some("echo 'Post'".to_string());
 
-  job.add_job_commands(&mut script);
+  job.add_job_commands(&mut script, None);
 
   // Check order
   let pre_pos = script.find("echo 'Pre'").unwrap();
@@ -273,7 +283,7 @@ fn test_add_job_commands_empty_strings_ignored() {
   job.preprocess = Some("".to_string());
   job.postprocess = Some("".to_string());
 
-  job.add_job_commands(&mut script);
+  job.add_job_commands(&mut script, None);
 
   assert!(!script.contains("# Preprocessing"));
   assert!(!script.contains("# Postprocessing"));

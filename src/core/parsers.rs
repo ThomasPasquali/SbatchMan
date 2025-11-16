@@ -9,8 +9,8 @@ mod tests;
 
 use thiserror::Error;
 
-pub use jobs::{ParsedJob, parse_jobs_from_file};
 pub use configs::parse_clusters_configs_from_file;
+pub use jobs::{ParsedJob, parse_jobs_from_file};
 
 #[derive(Error, Debug)]
 pub enum ParserError {
