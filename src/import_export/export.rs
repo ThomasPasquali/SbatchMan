@@ -55,10 +55,10 @@ pub fn export(format: Option<&str>, compressed_filename: Option<&str>) {
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string(); 
 
     let out_name = format!("{}_{}_{}_.{}", filename, clustername, ts, format);
-    let out_path = match env::current_dir() {
-        Ok(cd) => cd.join(&out_name),
-        Err(_) => {
-            eprintln!("❌ Could not determine current directory");
+    let out_path = match env::home_dir() {
+        Some(cd) => cd.join(&out_name),
+        None => {
+            eprintln!("❌ Could not determine home directory");
             return;
         }
     };
