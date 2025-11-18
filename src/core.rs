@@ -2,7 +2,7 @@ mod cluster_configs;
 pub mod database;
 mod jobs;
 mod parsers;
-mod sbatchman_configs;
+pub mod sbatchman_configs;
 
 #[cfg(test)]
 mod tests;
