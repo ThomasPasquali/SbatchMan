@@ -1,6 +1,6 @@
 mod cluster_configs;
 pub mod database;
-mod jobs;
+pub mod jobs;
 mod parsers;
 pub mod sbatchman_configs;
 
@@ -14,7 +14,8 @@ use crate::core::database::Database;
 pub struct Sbatchman {
   db: Database,
   path: PathBuf,
-  config: sbatchman_configs::SbatchmanConfig,
+  config_global: sbatchman_configs::SbatchmanConfig,
+  config_local: sbatchman_configs::SbatchmanConfig,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -39,19 +40,45 @@ impl Sbatchman {
 
     let path = sbatchman_configs::get_sbatchman_dir()?;
     let db = Database::new(&path)?;
-    let config = sbatchman_configs::get_sbatchman_config(&path)?;
-    Ok(Sbatchman { db, path, config })
+    let config_global = sbatchman_configs::get_sbatchman_config_global()?;
+    let config_local = sbatchman_configs::get_sbatchman_config_local(&path)?;
+    Ok(Sbatchman {
+      db,
+      path,
+      config_global,
+      config_local,
+    })
   }
 
   pub fn init(path: &PathBuf) -> Result<(), SbatchmanError> {
     sbatchman_configs::init_sbatchman_dir(path)?;
+    sbatchman_configs::init_sbatchman_config_global()?;
     Ok(())
   }
 
-  pub fn set_cluster_name(&mut self, name: &str) -> Result<(), SbatchmanError> {
-    self.config.cluster_name = Some(name.to_string());
-    sbatchman_configs::set_sbatchman_config(&self.path, &mut self.config)?;
+  pub fn set_cluster_name(&mut self, name: &str, local: bool) -> Result<(), SbatchmanError> {
+    if local {
+      self.config_global.cluster_name = Some(name.to_string());
+      sbatchman_configs::set_sbatchman_config_global(&mut self.config_global)?;
+    } else {
+      self.config_global.cluster_name = Some(name.to_string());
+      sbatchman_configs::set_sbatchman_config_local(&self.path, &mut self.config_global)?;
+    }
     Ok(())
+  }
+
+  pub fn get_cluster_name(&self) -> Option<String> {
+    self
+      .get_cluster_name_local()
+      .or_else(|| self.get_cluster_name_global())
+  }
+
+  pub fn get_cluster_name_global(&self) -> Option<String> {
+    self.config_global.cluster_name.clone()
+  }
+
+  pub fn get_cluster_name_local(&self) -> Option<String> {
+    self.config_local.cluster_name.clone()
   }
 
   pub fn import_clusters_configs_from_file(&mut self, path: &str) -> Result<(), SbatchmanError> {
@@ -71,7 +98,7 @@ impl Sbatchman {
     let cluster_name = match &cluster_name {
       Some(name) => name,
       None => self
-        .config
+        .config_global
         .cluster_name
         .as_ref()
         .ok_or(SbatchmanError::NoClusterSet)?,

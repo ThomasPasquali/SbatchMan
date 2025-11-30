@@ -82,6 +82,21 @@ pub enum JobLog {
   Variable(String, String),
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JobFilter {
+  pub statuses: Vec<Status>,
+  pub config_ids: Vec<i32>,
+}
+
+impl Default for JobFilter {
+  fn default() -> Self {
+    Self {
+      statuses: vec![],
+      config_ids: vec![],
+    }
+  }
+}
+
 impl Job {
   /// Add preprocessing, main command, and postprocessing to script
   /// This is used by all schedulers to construct the job execution flow
@@ -339,7 +354,7 @@ pub fn launch_jobs_from_file(
   return Ok(());
 }
 
-fn launch_job(
+pub(super) fn launch_job(
   job: &ParsedJob,
   config: &Config,
   cluster: &Cluster,

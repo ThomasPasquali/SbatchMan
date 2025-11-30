@@ -10,7 +10,10 @@ use log::debug;
 use std::{collections::HashMap, io, path::Path};
 use thiserror::Error;
 
-use crate::core::database::models::{NewClusterConfig, Status};
+use crate::core::{
+  database::models::{Job, NewClusterConfig, Status},
+  jobs::JobFilter,
+};
 
 use super::database::{
   models::{Cluster, Config, NewCluster, NewConfig},
@@ -29,6 +32,8 @@ pub enum StorageError {
   MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
   #[error("Database operation error: {0}")]
   OperationError(String),
+  #[error("Database query error: {0}")]
+  QueryError(String),
 }
 
 pub struct Database {
@@ -117,6 +122,22 @@ impl Database {
       .execute(&mut self.conn)
       .map_err(|e| StorageError::OperationError(e.to_string()))?;
     Ok(())
+  }
+
+  pub fn get_jobs(&mut self, filter: Option<JobFilter>) -> Result<Vec<Job>, StorageError> {
+    use self::schema::jobs::dsl as jobs_dsl;
+
+    Ok(if let Some(f) = filter {
+      jobs_dsl::jobs
+        .filter(jobs_dsl::status.eq_any(&f.statuses))
+        .filter(jobs_dsl::config_id.eq_any(&f.config_ids))
+        .load::<Job>(&mut self.conn)
+        .map_err(|e| StorageError::QueryError(e.to_string()))?
+    } else {
+      jobs_dsl::jobs
+        .load::<Job>(&mut self.conn)
+        .map_err(|e| StorageError::QueryError(e.to_string()))?
+    })
   }
 
   pub fn get_cluster_by_name(&mut self, name: &str) -> Result<Cluster, StorageError> {

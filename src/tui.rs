@@ -19,7 +19,10 @@ use serde::{Deserialize, Serialize};
 use std::io;
 
 use crate::{
-  core::database::models::{Cluster, Config, Job, Status},
+  core::{
+    database::models::{Cluster, Config, Job, Status},
+    jobs::JobFilter,
+  },
   tui::examples::generate_sample_data,
 };
 
@@ -125,21 +128,6 @@ impl Default for ColumnConfig {
       ],
       sort_by: ColumnType::Id,
       sort_ascending: false,
-    }
-  }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct JobFilter {
-  pub statuses: Vec<Status>,
-  pub config_ids: Vec<i32>,
-}
-
-impl Default for JobFilter {
-  fn default() -> Self {
-    Self {
-      statuses: vec![],
-      config_ids: vec![],
     }
   }
 }

@@ -1,7 +1,7 @@
 mod cli;
 pub mod core;
-mod tui;
 mod import_export;
+mod tui;
 
 fn main() {
   cli::main();

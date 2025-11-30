@@ -1,5 +1,7 @@
 .vscode
 
+.sbatchman
+
 /target
 Cargo.lock
 

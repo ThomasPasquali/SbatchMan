@@ -33,7 +33,7 @@ pub struct SbatchmanConfig {
 pub fn init_sbatchman_dir(path: &PathBuf) -> Result<(), SbatchmanConfigError> {
   let path = path.join(".sbatchman");
   std::fs::create_dir_all(&path).map_err(SbatchmanConfigError::FilesystemError)?;
-  init_sbatchman_config(&path)?;
+  init_sbatchman_config_local(&path)?;
   Database::new(&path)?;
   Ok(())
 }
@@ -63,14 +63,13 @@ pub fn get_sbatchman_dir() -> Result<PathBuf, SbatchmanConfigError> {
   Err(SbatchmanConfigError::SbatchmanDirNotFound)
 }
 
-pub fn init_sbatchman_config(path: &PathBuf) -> Result<(), SbatchmanConfigError> {
-  let config: SbatchmanConfig = SbatchmanConfig::default();
-  confy::store_path(path.join("sbatchman.conf"), config)
-    .map_err(|e| SbatchmanConfigError::ConfyError(e))?;
-  Ok(())
+pub fn get_sbatchman_config_global() -> Result<SbatchmanConfig, SbatchmanConfigError> {
+  let config: SbatchmanConfig =
+    confy::load("sbatchman", "config").map_err(|e| SbatchmanConfigError::ConfyError(e))?;
+  Ok(config)
 }
 
-pub fn get_sbatchman_config(path: &PathBuf) -> Result<SbatchmanConfig, SbatchmanConfigError> {
+pub fn get_sbatchman_config_local(path: &PathBuf) -> Result<SbatchmanConfig, SbatchmanConfigError> {
   if !path.join("sbatchman.conf").is_file() {
     return Err(SbatchmanConfigError::SbatchmanConfigNotFound);
   }
@@ -79,7 +78,29 @@ pub fn get_sbatchman_config(path: &PathBuf) -> Result<SbatchmanConfig, Sbatchman
   Ok(config)
 }
 
-pub fn set_sbatchman_config(
+pub fn init_sbatchman_config_global() -> Result<(), SbatchmanConfigError> {
+  let cfg_path = confy::get_configuration_file_path("sbatchman", "config").map_err(|e| SbatchmanConfigError::ConfyError(e))?;
+  if !cfg_path.exists() {
+    let config: SbatchmanConfig = SbatchmanConfig::default();
+    confy::store("sbatchman", "config", config).map_err(|e| SbatchmanConfigError::ConfyError(e))?;
+    println!("Created global configuration file at '{:?}'", cfg_path);
+  }
+  Ok(())
+}
+
+pub fn init_sbatchman_config_local(path: &PathBuf) -> Result<(), SbatchmanConfigError> {
+  let config: SbatchmanConfig = SbatchmanConfig::default();
+  confy::store_path(path.join("sbatchman.conf"), config)
+    .map_err(|e| SbatchmanConfigError::ConfyError(e))?;
+  Ok(())
+}
+
+pub fn set_sbatchman_config_global(config: &SbatchmanConfig) -> Result<(), SbatchmanConfigError> {
+  confy::store("sbatchman", "config", config).map_err(|e| SbatchmanConfigError::ConfyError(e))?;
+  Ok(())
+}
+
+pub fn set_sbatchman_config_local(
   path: &PathBuf,
   config: &SbatchmanConfig,
 ) -> Result<(), SbatchmanConfigError> {
