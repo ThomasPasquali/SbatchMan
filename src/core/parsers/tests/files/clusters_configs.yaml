@@ -38,7 +38,7 @@ clusters:
     # This will tell SbatchMan to use SLURM commands, e.g., `sbatch`
     # Keys like `nodes`, `account` etc. will be mapped to the corresponding SLURM header
     # Not supported headers can be specified using `extra_headers`
-    scheduler: slurm
+    scheduler: Slurm
 
     # Values set here will be set on every `clusterA` configuration
     # Note: they can be overwritten
@@ -68,7 +68,7 @@ clusters:
           - "--exact"
 
   clusterB:
-    scheduler: pbs
+    scheduler: Pbs
     configs:
       - name: "weird_but_plausible_{nodes}-N_{ncpus}-CPU"
         params:
@@ -80,7 +80,7 @@ clusters:
 
   # clusterC will launch commands directly (not via a workload manager)
   clusterC:
-    scheduler: local
+    scheduler: Local
 
     configs:
       - name: "config_{nodes}-N_{ncpus}-CPU"

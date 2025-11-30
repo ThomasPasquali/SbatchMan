@@ -44,21 +44,10 @@ pub fn main() {
   // if let Some(Commands::Init {}) = &cli.command {
   // } else {
   match &cli.command {
-    Some(Commands::Configure { file }) => {
-      let mut sbatchman = core::Sbatchman::new().expect("Failed to initialize Sbatchman");
-      sbatchman
-        .import_clusters_configs_from_file(file)
-        .expect("Failed to import clusters and configs from file");
-    }
-
     Some(Commands::Init {}) => {
       let path = env::current_dir().expect("Failed to get current directory");
       Sbatchman::init(&path).expect("Failed to initialize sbatchman directory");
       println!("✅ Sbatchman initialized successfully!");
-    }
-
-    Some(Commands::Update {}) => {
-      utils::update().expect("Failed to update sbatchman");
     }
 
     Some(Commands::SetClusterName { name, local }) => {
@@ -68,6 +57,13 @@ pub fn main() {
         .expect("Failed to set cluster name in sbatchman configuration");
       let scope = if *local { "locally" } else { "globally" };
       println!("✅ Cluster name {} set to '{}' successfully!", scope, name);
+    }
+
+    Some(Commands::Configure { file }) => {
+      let mut sbatchman = core::Sbatchman::new().expect("Failed to initialize Sbatchman");
+      sbatchman
+        .import_clusters_configs_from_file(file)
+        .expect("Failed to import clusters and configs from file");
     }
 
     Some(Commands::Launch {
@@ -80,7 +76,10 @@ pub fn main() {
         .expect("Failed to launch jobs from file");
     }
 
-    Some(Commands::TUI {}) => launch_tui().expect("Failed to launch TUI"),
+    Some(Commands::TUI {}) => {
+      let mut sbatchman = core::Sbatchman::new().expect("Failed to initialize Sbatchman");
+      launch_tui(&mut sbatchman).expect("Failed to launch TUI")
+    },
 
     Some(Commands::Export {
       format,
@@ -91,6 +90,10 @@ pub fn main() {
 
     Some(Commands::Import {}) => {
       crate::import_export::import::import();
+    }
+
+    Some(Commands::Update {}) => {
+      utils::update().expect("Failed to update sbatchman");
     }
 
     None => {}

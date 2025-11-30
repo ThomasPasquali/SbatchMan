@@ -16,12 +16,11 @@ use ratatui::{
   },
 };
 use serde::{Deserialize, Serialize};
-use std::io;
+use std::{collections::HashMap, io};
 
 use crate::{
   core::{
-    database::models::{Cluster, Config, Job, Status},
-    jobs::JobFilter,
+    Sbatchman, SbatchmanError, database::models::{Cluster, Config, Job, Status}, jobs::JobFilter
   },
   tui::examples::generate_sample_data,
 };
@@ -166,8 +165,8 @@ pub enum ActionTarget {
 pub struct App {
   mode: AppMode,
   jobs: Vec<Job>,
-  configs: Vec<Config>,
-  clusters: Vec<Cluster>,
+  configs: HashMap<String, Config>,
+  cluster: Cluster,
   job_table_state: TableState,
   column_config: ColumnConfig,
   job_filter: JobFilter,
@@ -189,12 +188,14 @@ pub struct App {
 }
 
 impl App {
-  pub fn new(jobs: Vec<Job>, configs: Vec<Config>, clusters: Vec<Cluster>) -> Self {
+  pub fn new(sbatchman: &mut Sbatchman) -> Result<Self, SbatchmanError> {
+    let jobs = sbatchman.get_jobs(None).unwrap_or(vec![]);
+    let (cluster, configs) = sbatchman.get_this_cluster_configs()?;
     let mut app = Self {
       mode: AppMode::JobMonitoring(JobTab::Finished),
       jobs,
       configs,
-      clusters,
+      cluster,
       job_table_state: TableState::default(),
       column_config: ColumnConfig::default(),
       job_filter: JobFilter::default(),
@@ -217,7 +218,7 @@ impl App {
     app.job_table_state.select(Some(0));
     app.selected_action_list_state.select(Some(0));
     app.all_action_list_state.select(Some(0));
-    app
+    Ok(app)
   }
 
   fn get_filtered_jobs(&self, tab: JobTab) -> Vec<&Job> {
@@ -686,12 +687,13 @@ impl App {
             }
             FilterSection::Config => {
               if let Some(i) = self.filter_config_list_state.selected() {
-                let config_id = self.configs[i].id;
-                if self.job_filter.config_ids.contains(&config_id) {
-                  self.job_filter.config_ids.retain(|id| id != &config_id);
-                } else {
-                  self.job_filter.config_ids.push(config_id);
-                }
+                // TODO
+                // let config_id = self.configs[i].id;
+                // if self.job_filter.config_ids.contains(&config_id) {
+                //   self.job_filter.config_ids.retain(|id| id != &config_id);
+                // } else {
+                //   self.job_filter.config_ids.push(config_id);
+                // }
               }
             }
           },
@@ -1070,10 +1072,10 @@ impl App {
     let rows: Vec<Row> = self
       .configs
       .iter()
-      .map(|cfg| {
+      .map(|(cfg_name, cfg)| {
         Row::new(vec![
           Cell::from(cfg.id.to_string()),
-          Cell::from(cfg.config_name.clone()),
+          Cell::from(cfg_name.clone()),
           Cell::from(cfg.cluster_id.to_string()),
         ])
       })
@@ -1201,12 +1203,12 @@ impl App {
       .configs
       .iter()
       .map(|config| {
-        let checked = if self.job_filter.config_ids.contains(&config.id) {
+        let checked = if self.job_filter.config_ids.contains(&config.1.id) {
           "[x]"
         } else {
           "[ ]"
         };
-        let text = format!("{} {} (ID: {})", checked, config.config_name, config.id);
+        let text = format!("{} {} (ID: {})", checked, config.0, config.1.id);
         ListItem::new(text)
       })
       .collect();
@@ -1448,7 +1450,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
-pub fn launch_tui() -> io::Result<()> {
+pub fn launch_tui(sbatchman: &mut Sbatchman) -> io::Result<()> {
   // Setup terminal
   enable_raw_mode()?;
   let mut stdout = io::stdout();
@@ -1456,8 +1458,7 @@ pub fn launch_tui() -> io::Result<()> {
   let backend = CrosstermBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
 
-  let (jobs, configs, clusters) = generate_sample_data();
-  let mut app = App::new(jobs, configs, clusters);
+  let mut app = App::new(sbatchman).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
   let res = app.run(&mut terminal);
 
   // Restore terminal

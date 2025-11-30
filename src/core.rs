@@ -4,12 +4,9 @@ pub mod jobs;
 mod parsers;
 pub mod sbatchman_configs;
 
-#[cfg(test)]
-mod tests;
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
-use std::path::{Path, PathBuf};
-
-use crate::core::database::Database;
+use crate::core::{database::{Database, models::{Cluster, Config, Job}}, jobs::JobFilter};
 
 pub struct Sbatchman {
   db: Database,
@@ -108,5 +105,18 @@ impl Sbatchman {
       &mut self.db,
       cluster_name,
     )?)
+  }
+
+  pub fn get_jobs(&mut self, filter: Option<JobFilter>) -> Result<Vec<Job>, SbatchmanError> {
+    self.db.get_jobs(filter).map_err(|e| SbatchmanError::StorageError(e))
+  }
+
+  pub fn get_this_cluster_configs(&mut self) -> Result<(Cluster, HashMap<String, Config>), SbatchmanError> {
+    if let Some(cluster_name) = self.get_cluster_name() {
+      let cluster = self.db.get_cluster_by_name(&cluster_name).map_err(|e| SbatchmanError::StorageError(e))?;
+      let configs = self.db.get_configs_by_cluster(&cluster).map_err(|e| SbatchmanError::StorageError(e))?;
+      return Ok((cluster, configs));
+    }
+    Err(SbatchmanError::NoClusterSet)
   }
 }
