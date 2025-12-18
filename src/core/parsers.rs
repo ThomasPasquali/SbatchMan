@@ -3,6 +3,9 @@ mod includes;
 mod jobs;
 mod utils;
 pub mod variables;
+mod variable_substitutions;
+mod multi_hashmap;
+mod template_engine;
 
 #[cfg(test)]
 mod tests;
@@ -21,7 +24,7 @@ pub enum ParserError {
   #[error(
     "The file {0} is being included multiple times. Check if it has been included from multiple files or if there is a circular include (ex. FILE 1 -> FILE 2 -> FILE 1)."
   )]
-  CircularInclude(String),
+  MultipleInclude(String),
   #[error("YAML file is empty!")]
   YamlEmpty,
   #[error("Eval Error: {0}")]
@@ -38,4 +41,10 @@ pub enum ParserError {
   InvalidScheduler(String),
   #[error("Invalid parameter \"{0}\" for scheduler {1:?}")]
   InvalidParameterForScheduler(String, String),
+  #[error("Undefined variable: {0}")]
+  UndefinedVariable(String),
+  #[error("Cyclic dependency detected among variables")]
+  CyclicDependency(),
+  #[error("Invalid indexed variable: {0}")]
+  InvalidIndexedVariable(String),
 }

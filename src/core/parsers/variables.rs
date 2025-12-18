@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
+use crate::core::parsers::template_engine::Template;
 use crate::core::parsers::utils::value_from_str;
 use crate::core::parsers::{ParserError, utils::to_string};
 use hashlink::LinkedHashMap;
 use saphyr::{ScalarOwned as YamlOwnedScalar, Tag, YamlOwned};
-use serde::Serialize;
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug)]
 pub enum Scalar {
   String(String),
   Int(i64),
@@ -14,16 +14,16 @@ pub enum Scalar {
   Bool(bool),
   File(String),
   Directory(String),
-  Python(String),
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug)]
 pub enum BasicVar {
   Scalar(Scalar),
   List(Vec<Scalar>),
+  Python(Template),
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug)]
 pub struct ClusterMap {
   pub default: Option<BasicVar>,
   pub per_cluster: HashMap<String, BasicVar>,
@@ -35,10 +35,9 @@ impl ClusterMap {
   }
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum CompleteVar {
-  Scalar(Scalar),
-  List(Vec<Scalar>),
+  BasicVar(BasicVar),
   StandardMap(HashMap<String, BasicVar>),
   ClusterMap(ClusterMap),
 }
@@ -76,20 +75,19 @@ fn parse_scalar(s: &YamlOwnedScalar) -> Result<Scalar, ParserError> {
 }
 
 /// Parse a tagged YAML node into Scalar enum. Handles !file, !dir, and !python tags.
-fn parse_tagged(tag: &Tag, s: &YamlOwned) -> Result<Scalar, ParserError> {
+fn parse_tagged(tag: &Tag, s: &YamlOwned) -> Result<BasicVar, ParserError> {
   match tag.suffix.as_str() {
     "file" => {
       let path = to_string(s)?;
-      Ok(Scalar::File(path.to_string()))
+      Ok(BasicVar::Scalar(Scalar::File(path.to_string())))
     }
     "dir" => {
       let path = to_string(s)?;
-      Ok(Scalar::Directory(path.to_string()))
+      Ok(BasicVar::Scalar(Scalar::Directory(path.to_string())))
     }
     "python" => {
       let code = to_string(s)?;
-      println!("{code}");
-      Ok(Scalar::Python(code.to_string()))
+      Ok(BasicVar::Python(code.to_string()))
     }
     _ => {
       return Err(wrong_type_err!(tag, "unknown tag"));
@@ -106,33 +104,30 @@ fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, Parser
         scalars.push(parse_scalar(s)?);
       }
       YamlOwned::Tagged(tag, s) => {
-        scalars.push(parse_tagged(tag, s)?);
+        let result = parse_tagged(tag, s)?;
+        if let BasicVar::Scalar(scalar) = result {
+          scalars.push(scalar);
+        } else {
+          return Err(wrong_type_err!(item, "scalar"));
+        }
       }
       _ => {
-        return Err(wrong_type_err!(item, "scalar"));
+        return Err(wrong_type_err!(item, "scalar, file or dir"));
       }
     }
   }
   Ok(scalars)
 }
 
-/// Parse a mapping into HashMap<String, BasicVar>
-fn parse_mapping(
+/// Parse a mapping of BasicVars into HashMap<String, BasicVar>
+fn parse_map_of_basic_vars(
   map: &LinkedHashMap<YamlOwned, YamlOwned>,
 ) -> Result<HashMap<String, BasicVar>, ParserError> {
   let mut result: HashMap<String, BasicVar> = HashMap::new();
 
   for (k, v) in map.iter() {
     let key_str = k.as_str().ok_or(wrong_type_err!(k, "string"))?;
-    let basic_var = match v {
-      YamlOwned::Value(s) => BasicVar::Scalar(parse_scalar(s)?),
-      YamlOwned::Tagged(tag, s) => BasicVar::Scalar(parse_tagged(tag, s)?),
-      YamlOwned::Sequence(seq) => BasicVar::List(parse_sequence_of_scalars(seq)?),
-      _ => {
-        return Err(wrong_type_err!(v, "scalar or list"));
-      }
-    };
-    result.insert(key_str.to_string(), basic_var);
+    result.insert(key_str.to_string(), parse_basic_var(v)?);
   }
 
   Ok(result)
@@ -142,7 +137,7 @@ fn parse_mapping(
 fn parse_basic_var(yaml: &YamlOwned) -> Result<BasicVar, ParserError> {
   match yaml {
     YamlOwned::Value(s) => Ok(BasicVar::Scalar(parse_scalar(s)?)),
-    YamlOwned::Tagged(tag, s) => Ok(BasicVar::Scalar(parse_tagged(tag, s)?)),
+    YamlOwned::Tagged(tag, s) => Ok(parse_tagged(tag, s)?),
     YamlOwned::Sequence(seq) => Ok(BasicVar::List(parse_sequence_of_scalars(seq)?)),
     _ => {
       return Err(wrong_type_err!(yaml, "scalar or list"));
@@ -169,9 +164,13 @@ pub fn parse_variables(
       name: k.to_string(),
       // Determine the type of variable based on the YAML object
       contents: match v {
-        YamlOwned::Value(s) => parse_scalar(s).map(CompleteVar::Scalar)?,
-        YamlOwned::Tagged(tag, s) => parse_tagged(tag, s).map(CompleteVar::Scalar)?,
-        YamlOwned::Sequence(seq) => parse_sequence_of_scalars(seq).map(CompleteVar::List)?,
+        YamlOwned::Value(s) => {
+          parse_scalar(s).map(|x| CompleteVar::BasicVar(BasicVar::Scalar(x)))?
+        }
+        YamlOwned::Tagged(tag, s) => parse_tagged(tag, s).map(CompleteVar::BasicVar)?,
+        YamlOwned::Sequence(seq) => {
+          parse_sequence_of_scalars(seq).map(|x| CompleteVar::BasicVar(BasicVar::List(x)))?
+        }
         YamlOwned::Mapping(map) => {
           // Check for "per_cluster" key to determine if it's a ClusterMap
           if let Some(cluster_map) = map.get(&yaml_str!("per_cluster")) {
@@ -183,7 +182,7 @@ pub fn parse_variables(
             // Parse the "per_cluster" mapping and construct the ClusterMap
             CompleteVar::ClusterMap(ClusterMap {
               default,
-              per_cluster: parse_mapping(
+              per_cluster: parse_map_of_basic_vars(
                 cluster_map
                   .as_mapping()
                   .ok_or(wrong_type_err!(map, "map"))?,
@@ -191,7 +190,7 @@ pub fn parse_variables(
             })
           } else if let Some(map) = map.get(&yaml_str!("map")) {
             // Parse as a standard mapping variable
-            parse_mapping(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?)
+            parse_map_of_basic_vars(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?)
               .map(CompleteVar::StandardMap)?
           } else {
             return Err(wrong_type_err!(
@@ -208,4 +207,10 @@ pub fn parse_variables(
     variables.insert(v.name.clone(), v);
   }
   Ok(variables)
+}
+
+impl CompleteVar {
+  pub fn is_standard_map(&self) -> bool {
+    matches!(self, CompleteVar::StandardMap(_))
+  }
 }

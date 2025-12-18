@@ -29,6 +29,9 @@ flate2 = "1.1.5"
 tar = "0.4.44"
 walkdir = "2.5.0"
 zip = "6.0.0"
+lazy-regex = "3.4.2"
+petgraph = "0.8.3"
+itertools = "0.14.0"
 
 [dev-dependencies]
 tempfile = "3.23.0"

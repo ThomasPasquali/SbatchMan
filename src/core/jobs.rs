@@ -2,7 +2,6 @@ mod local;
 mod pbs;
 mod slurm;
 mod utils;
-mod variable_substitutions;
 mod r#virtual;
 use std::collections::HashMap;
 use std::io::Write;
@@ -19,9 +18,6 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::core::jobs::utils::{escape_for_printf, get_timestamp_string};
-use crate::core::jobs::variable_substitutions::{
-  CartesianGenerator, DependencyGraph, VariableResolver, substitute_and_evaluate,
-};
 use crate::core::parsers::variables::{CompleteVar, Variable};
 use crate::core::{
   cluster_configs::ClusterConfig,

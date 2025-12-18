@@ -12,13 +12,10 @@ use serde_json::json;
 use crate::core::{
   database::models::{NewCluster, NewClusterConfig, NewConfig, Scheduler},
   parsers::{
-    ParserError,
-    includes::get_include_variables,
-    utils::{
+    ParserError, includes::get_include_variables, multi_hashmap::MultiHashMap, utils::{
       load_yaml_from_file, lookup_mapping, lookup_sequence, lookup_str, to_mapping, to_string,
       value_from_str, yaml_lookup,
-    },
-    variables::{Variable, parse_variables},
+    }, variables::{Variable, parse_variables}
   },
 };
 
@@ -124,6 +121,7 @@ fn parse_config(
   })
 }
 
+/// Parses a single cluster configuration from YAML node.
 fn parse_cluster(
   cluster_name: String,
   cluster: &saphyr::YamlOwned,
@@ -175,9 +173,19 @@ fn parse_cluster(
   Ok(parsed_cluster)
 }
 
-/// Parse cluster configurations from a YAML file
+/// Reads YAML file that defines cluster configurations. Returns a vector of parsed cluster configurations.
+/// High level description of the parsing logic:
+/// 1. Add included variables and top-level variables to the variables multi-hashmap
+/// 2. For each cluster:
+///   a. Add cluster-level variables to the variables multi-hashmap
+///   b. Add cluster-level default params to the parameters multi-hashmap
+///   c. For each config in the cluster:
+///     i. Add the config-level variables and parameters to the multi-hashmaps
+///     ii. Iterate over the parameter multi-hashmap to check if all referenced variables exist
+/// 
 pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig>, ParserError> {
-  let variables = get_include_variables(root)?;
+  let mut multi_hashmap = MultiHashMap::new();
+  get_include_variables(root, multi_hashmap)?;
   let yaml = load_yaml_from_file(root)?;
 
   let clusters = lookup_mapping(&yaml, "clusters").map_err(|_| ParserError::EmptyClusterConfig)?;

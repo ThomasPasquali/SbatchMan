@@ -194,20 +194,16 @@ pub struct JobFilter {
 Variables can be used for generating multiple cluster configurations and job variants. The following main variable types are defined: simple variables, lists, standard maps, cluster maps, and special variables.
   * Simple types:
     * **string**: A standard string value.
-    * **int**: An integer value.
-    * **float**: A floating-point value.
-    * **bool**: A boolean value.
+    * **int**: An integer value. (https://yaml.org/spec/1.2.2/#10213-integer)
+    * **float**: A floating-point value. (https://yaml.org/spec/1.2.2/#10214-floating-point)
+    * **bool**: A boolean value. (https://yaml.org/spec/1.2.2/#10212-boolean)
   * Lists: lists of values. When multiple list variables are defined, all combinations of their values are generated.
   * Standard maps: key-value pairs, where the value can be referenced using the key. Values can be either simple types or lists.
-  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. When referencing a cluster map, the value corresponding to the current cluster is used. Differently from standard maps, a default value can also be specified. Values can be either simple types or lists.
+  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. When referencing a cluster map, the value corresponding to the current cluster is used. Values can be either simple types or lists.
   * Special types:
-    * `!dir path`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
-    * `!file path`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
-    * `!python code`: A special directive that allows defining variables using Python code. The code is executed, and the returned value is used as the variable's value. The code can return either a single value or a list of values. Inside the Python code, existing variables can be referenced by prefixing them with a `$` sign.
-    > [!IMPORTANT]
-    > When using the `!python` directive, ensure that the Python environment has access to any necessary libraries or modules required by the code snippet and that the referenced variables are defined when the code is executed. Moreover, use the `|` syntax to define multi-line code and ensure proper indentation.
-
-Valid characters for variable names include the uppercase and lowercase letters (A-Z and a-z), the underscore _ and, except for the first character, the digits 0 through 9.
+    * `!dir <path>`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
+    * `!file <path>`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
+    * `!python <expression>`: A special directive that evaluates a Python expression. The expression can reference other variables using the `{{ var }}` notation. The expression must return a simple type.
 
 When defining jobs, the following special variables are also available:
   * `work_dir`: The working directory where `sbatchman` was invoked.
@@ -215,19 +211,19 @@ When defining jobs, the following special variables are also available:
   * `config_name`: The name of the cluster configuration being used.
   * `cluster_name`: The name of the cluster being used.
 
-These work the same way as other variables. If the user defines a variable using a reserved name, ann error will be raised.
+These work the same way as other variables. It is not possible to redefine these special variables.
 
 **Note: variable names are case-insensitive.**
 
 ### Substitutions
 Variables can be referenced in the following fields:
   - Clusters config file: `name`, all fields inside `params` and `defaults`
-    Configuration names must be unique within each cluster.
-    > [!IMPORTANT]
-    > If you use variables that generate lists, make sure to include those variables in the `name` field as well, so that each configuration has a unique name.
+    Configuration names must be unique within each cluster. This means that if a variable is a list, you need to include that variable in the. `name` field as well, so that each configuration has a unique name.
   - Jobs config file: `command`, `preprocess`, `postprocess`, `name`, `cluster_config`
 
-**Substitution syntax:** To use variables in a field, use the `${var}` notation. For standard maps, use the syntax `${map}[key]`. If the key itself is a variable, prefix it with `$`, for example: `${map}[${var}]`.
+To reference a variable, use the `{{ var }}` notation. To reference a value inside a map, use the `{{ map["key"] }}` notation. If the key is a variable itself, use `{{ map[key] }}` or `{{ map.key }}` (the key variable must be a simple type or a list).
+
+The same notation is used in `python` blocks to reference variables.
 
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
@@ -265,43 +261,45 @@ include: variables.yaml
 clusters:
   clusterA:
     scheduler: slurm
-      variables:
-        mem: !python |
-          if "${partition}" == "partition_cpu_A":
-            return 16000 * int(${ncpus})
-          else:
-            return 32000 * int(${ncpus})
-    default_params:
+    variables:
+      mem: !python |
+        if {{partition}} == "partition_gpu_A":
+          return 64000
+        else:
+          return 32000
+    params:
       account: "example_default_account"
       extra_params: "--gres=gpu:1"
-      extra_commands:
+      preprocess_commands:
         - "./my-custom-command"
         - "module load openmpi"
       env:
         EXAMPLE_ENV_VAR: 1
     configs:
-      - name: "job_${partition}_${ncpus}"
+      - name: "job_{{partition}}_{{ncpus}}"
         variables:
           dataset: "ab"
           scale: "12"
         params:
-          partition: "${partition}"
-          qos: "${qos}[${partition}]"
-          cpus_per_task: "${ncpus}"
-          mem: "${mem}"
+          partition: "{{partition}}"
+          qos: "${{qos.partition}}"
+          cpus_per_task: "{{ncpus}}"
+          mem: "{{mem}}"
           time: "01:00:00"
           extra_params: "--exclusive"
+
           env:
-            OMP_NUM_THREADS: "${ncpus}"
+            OMP_NUM_THREADS: "{{ncpus}}"
+        exclude: partition == "partition_gpu_A" && ncpus == 4
 
   clusterB:
     scheduler: pbs
     configs:
-      - name: "mem_job_${mem}"
+      - name: "mem_job_{{mem}}"
         params:
-          mem: "${mem}"
+          mem: "{{mem}}"
           walltime: "01:00:00"
-          cpus: "${ncpus}"
+          cpus: "{{ncpus}}"
 ```
 
 ### Example: Job Configuration (`jobs.yaml`)
@@ -316,16 +314,16 @@ variables:
   python_command: python3.10
   runs: [100, 200]
   matrix_size: !python |
-    {runs} * 10
+    {{runs}} * 10
   flags:
     default: ['--flag_default']
     per_cluster:
       "clusterA": ['--flag1', '--flag2']
       "clusterB": ['--flag3']
 
-command: python run.py --input {dataset_dir} --runs {runs} --gpus {gpu_list} {flags} {matrix_size}
-preprocess: echo "Preparing dataset {dataset_dir}"
-postprocess: echo "Cleaning up after {dataset_dir}"
+command: python run.py --input {{dataset_dir}} --runs {runs} --gpus {gpu_list} {flags} {matrix_size}
+preprocess: echo "Preparing dataset {{dataset_dir}}"
+postprocess: echo "Cleaning up after {{dataset_dir}}"
 
 jobs:
   - name: baseline_experiment
@@ -341,8 +339,8 @@ jobs:
     variables:
       runs: [300, 400]
       partition: [cpu, gpu]
-    command: python custom.py --file {dataset_dir} --runs {runs}
-    preprocess: echo "Custom preprocess for config custom_exp_{dataset_dir}"
+    command: python custom.py --file {{dataset_dir}} --runs {runs}
+    preprocess: echo "Custom preprocess for config custom_exp_{{dataset_dir}}"
 
   - name: weak_scaling
     cluster_config: other_cluster_config

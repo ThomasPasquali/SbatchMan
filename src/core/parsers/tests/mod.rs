@@ -13,6 +13,104 @@ fn get_test_path(p: &str) -> PathBuf {
   PathBuf::from("src/core/parsers/tests/files").join(p)
 }
 
+macro_rules! assert_is_dir {
+  ($var:expr, $expected:expr) => {
+    match &$var {
+      CompleteVar::BasicVar(BasicVar::Scalar(Scalar::Directory(s))) => {
+        assert_eq!(s, $expected, "Directory path mismatch");
+      }
+      val => {
+        panic!("Expected Scalar::Directory, found {:?}", val);
+      }
+    }
+  };
+}
+
+macro_rules! assert_is_file {
+  ($var:expr, $expected:expr) => {
+    match &$var {
+      CompleteVar::BasicVar(BasicVar::Scalar(Scalar::File(s))) => {
+        assert_eq!(s, $expected, "File path mismatch");
+      }
+      val => {
+        panic!("Expected Scalar::File, found {:?}", val);
+      }
+    }
+  };
+}
+
+macro_rules! assert_is_python {
+  ($var:expr, $expected:expr) => {
+    match &$var {
+      CompleteVar::BasicVar(BasicVar::Python(s)) => {
+        assert_eq!(s, $expected, "Python code mismatch");
+      }
+      val => {
+        panic!("Expected Scalar::Python, found {:?}", val);
+      }
+    }
+  };
+}
+
+macro_rules! assert_is_string {
+  ($var:expr, $expected:expr) => {
+    match &$var {
+      CompleteVar::BasicVar(BasicVar::Scalar(Scalar::String(s))) => {
+        assert_eq!(s, $expected, "String value mismatch");
+      }
+      val => {
+        panic!("Expected Scalar::String, found {:?}", val);
+      }
+    }
+  };
+}
+
+macro_rules! assert_is_list {
+  ($var:expr, $expected:expr) => {
+    match $var {
+      CompleteVar::BasicVar(BasicVar::List(l)) => {
+        assert_eq!(l, &$expected, "List value mismatch");
+      }
+      val => {
+        panic!("Expected BasicVar::List, found {:?}", val);
+      }
+    }
+  };
+}
+
+macro_rules! assert_is_standard_map {
+  ($var:expr, $expected:expr) => {
+    match $var {
+      CompleteVar::StandardMap(m) => {
+        assert_eq!(m, &$expected, "StandardMap value mismatch");
+      }
+      val => {
+        panic!("Expected CompleteVar::StandardMap, found {:?}", val);
+      }
+    }
+  };
+}
+
+macro_rules! assert_is_cluster_map {
+  ($var:expr, $expected_default:expr, $expected_per_cluster:expr) => {
+    match $var {
+      CompleteVar::ClusterMap(cm) => {
+        assert_eq!(
+          cm.default, $expected_default,
+          "ClusterMap default value mismatch"
+        );
+        assert_eq!(
+          cm.per_cluster, $expected_per_cluster,
+          "ClusterMap per_cluster value mismatch"
+        );
+      }
+      val => {
+        panic!("Expected CompleteVar::ClusterMap, found {:?}", val);
+      }
+    }
+  };
+}
+
 #[test]
 fn test_get_include_variables_simple() {
   let path = get_test_path("variables.yaml");
@@ -22,46 +120,48 @@ fn test_get_include_variables_simple() {
 
   // variables.yaml includes recursive_vars.yaml
   assert_eq!(variables.len(), 8);
-  assert!(
-    matches!(variables["dataset"].contents, CompleteVar::Scalar(Scalar::Directory(ref dir)) if dir == "datasets/")
+  assert_is_dir!(variables["dataset"].contents, "datasets/");
+  assert_is_file!(variables["mode"].contents, "modes.txt");
+  assert_is_list!(
+    &variables["implementation"].contents,
+    vec![Scalar::Bool(true), Scalar::Int(-5), Scalar::Float(-5.0),]
   );
-  assert!(
-    matches!(variables["mode"].contents, CompleteVar::Scalar(Scalar::File(ref s)) if s == "modes.txt")
-  );
-  assert!(
-    matches!(variables["implementation"].contents, CompleteVar::List(ref l) if l == &vec![
-      Scalar::Bool(true),
-      Scalar::Int(-5),
-      Scalar::Float(-5.0),
+  assert_is_standard_map!(
+    &variables["args"].contents,
+    HashMap::from([
+      (
+        "impl1".to_string(),
+        BasicVar::Scalar(Scalar::String(
+          "--arg-for-impl1 --another-for-impl1".to_string()
+        ))
+      ),
+      (
+        "impl2".to_string(),
+        BasicVar::Scalar(Scalar::String("--arg-for-impl2".to_string()))
+      ),
     ])
   );
-  assert!(
-    matches!(variables["args"].contents, CompleteVar::StandardMap(ref m) if m == &HashMap::from([
-      ("impl1".to_string(), BasicVar::Scalar(Scalar::String("--arg-for-impl1 --another-for-impl1".to_string()))),
-      ("impl2".to_string(), BasicVar::Scalar(Scalar::String("--arg-for-impl2".to_string())))
-    ]))
+  assert_is_cluster_map!(
+    &variables["nodes"].contents,
+    Some(BasicVar::List(vec![
+      Scalar::Int(1),
+      Scalar::Int(2),
+      Scalar::Int(4),
+      Scalar::Int(8),
+    ])),
+    HashMap::from([
+      (
+        "clusterA".to_string(),
+        BasicVar::List(vec![Scalar::Int(1)])
+      ),
+      (
+        "clusterB".to_string(),
+        BasicVar::List(vec![Scalar::Int(1), Scalar::Int(2)])
+      ),
+    ])
   );
-  assert!(
-    matches!(variables["nodes"].contents, CompleteVar::ClusterMap(ref cm) if cm.default == Some(BasicVar::List(
-      vec![
-        Scalar::Int(1),
-        Scalar::Int(2),
-        Scalar::Int(4),
-        Scalar::Int(8),
-      ]
-    )) &&
-      cm.per_cluster == HashMap::from([
-        ("clusterA".to_string(), BasicVar::List(vec![Scalar::Int(1)])),
-        ("clusterB".to_string(), BasicVar::List(vec![Scalar::Int(1), Scalar::Int(2)]))
-      ])
-    )
-  );
-  assert!(
-    matches!(variables["to_override"].contents, CompleteVar::Scalar(Scalar::String(ref s)) if s == "NOT OVERWRITTEN")
-  );
-  assert!(
-    matches!(variables["recursive"].contents, CompleteVar::Scalar(Scalar::String(ref s)) if s == "ok")
-  );
+  assert_is_string!(variables["to_override"].contents, "NOT OVERWRITTEN");
+  assert_is_string!(variables["recursive"].contents, "ok");
 }
 
 #[test]
@@ -76,11 +176,7 @@ fn test_get_include_variables_override() {
   assert!(variables.contains_key("to_override"));
 
   let to_override_var = variables.get("to_override").unwrap();
-  if let CompleteVar::Scalar(Scalar::String(s)) = &to_override_var.contents {
-    assert_eq!(s, "OVERWRITTEN");
-  } else {
-    panic!("'to_override' variable has wrong type");
-  }
+  assert_is_string!(to_override_var.contents, "OVERWRITTEN");
 
   // Check a variable from the included file to ensure it's there
   assert!(variables.contains_key("dataset"));
@@ -117,18 +213,10 @@ fn test_get_include_variables_multiple_includes() {
   // From subdir/more_variables.yaml
   assert!(variables.contains_key("another_var"));
   let another_var = variables.get("another_var").unwrap();
-  if let CompleteVar::Scalar(Scalar::String(s)) = &another_var.contents {
-    assert_eq!(s, "value");
-  } else {
-    panic!("'another_var' variable has wrong type");
-  }
+  assert_is_string!(another_var.contents, "value");
 
   let to_override_var = variables.get("to_override1").unwrap();
-  if let CompleteVar::Scalar(Scalar::String(s)) = &to_override_var.contents {
-    assert_eq!(s, "OVERWRITTEN");
-  } else {
-    panic!("'to_override' variable has wrong type");
-  }
+  assert_is_string!(to_override_var.contents, "OVERWRITTEN");
 }
 
 #[test]
@@ -189,32 +277,24 @@ fn test_special_types() {
 
   // Test !dir
   assert!(
-    matches!(variables["dataset_dir"].contents, CompleteVar::Scalar(Scalar::Directory(ref s)) if s == "datasets/images")
+    matches!(variables["dataset_dir"].contents, CompleteVar::BasicVar(BasicVar::Scalar(Scalar::Directory(ref s))) if s == "datasets/images")
   );
 
   // Test !file
-  assert!(
-    matches!(variables["gpu_list"].contents, CompleteVar::Scalar(Scalar::File(ref s)) if s == "gpus.txt")
-  );
+  assert_is_file!(variables["gpu_list"].contents, "gpus.txt");
 
   // Test !python with multiline string
   let expected_python_code1 = "# This Python code generates a list of values\nbase = 10\nreturn [base * i for i in range(1, 6)]\n";
-  assert!(
-    matches!(variables["generated_values"].contents, CompleteVar::Scalar(Scalar::Python(ref s)) if s == expected_python_code1)
-  );
+  assert_is_python!(variables["generated_values"].contents, expected_python_code1);
 
   // Test !python with single line string
   let expected_python_code2 =
     "# This Python code returns a single value\nreturn \"single_generated_value\"\n";
-  assert!(
-    matches!(variables["single_value"].contents, CompleteVar::Scalar(Scalar::Python(ref s)) if s == expected_python_code2)
-  );
+  assert_is_python!(variables["single_value"].contents, expected_python_code2);
 
   // Test !python with variable reference
   let expected_python_code3 = "# This Python code references existing variables\ndataset_count = len($dataset_dir)\nif dataset_count == 0:\n  return \"No datasets found\"\nreturn f\"Number of datasets: {dataset_count}\"\n";
-  assert!(
-    matches!(variables["reference_existing"].contents, CompleteVar::Scalar(Scalar::Python(ref s)) if s == expected_python_code3)
-  );
+  assert_is_python!(variables["reference_existing"].contents, expected_python_code3);
 }
 
 #[test]
@@ -245,7 +325,7 @@ fn test_get_include_variables_circular_include(path: &Path) {
   let result = get_include_variables(&path);
   assert!(result.is_err());
   match result.err().unwrap() {
-    ParserError::CircularInclude(_) => {} // Correct error type
+    ParserError::MultipleInclude(_) => {} // Correct error type
     e => panic!("Expected CircularInclude, got {:?}", e),
   }
 }
