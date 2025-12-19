@@ -225,6 +225,8 @@ To reference a variable, use the `{{ var }}` notation. To reference a value insi
 
 The same notation is used in `python` blocks to reference variables.
 
+Technical note: when parsing the python block, a static analysis is run to check for used variables, the actual control flow is not considered. Therefore, if multiple lists are used, you might end up with duplicate jobs.
+
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
 ```yaml
@@ -321,32 +323,34 @@ variables:
       "clusterA": ['--flag1', '--flag2']
       "clusterB": ['--flag3']
 
-command: python run.py --input {{dataset_dir}} --runs {runs} --gpus {gpu_list} {flags} {matrix_size}
+command: python run.py --input {{dataset_dir}} --runs {{runs}} --gpus {{gpu_list}} {{flags}} {{matrix_size}}
 preprocess: echo "Preparing dataset {{dataset_dir}}"
 postprocess: echo "Cleaning up after {{dataset_dir}}"
 
 jobs:
   - name: baseline_experiment
-    cluster_config: gpu_config_{gpu_list}
+    cluster_config: gpu_config_{{gpu_list}}
     variants:
-      - name: flag_{flags}
+      - name: flag_{{flags}}
       - name: custom_flag
         variables:
           flags: ['--flag3']
 
   - name: other_experiment
-    cluster_config: "{partition}_config"
+    cluster_config: "{{partition}}_config"
     variables:
       runs: [300, 400]
       partition: [cpu, gpu]
-    command: python custom.py --file {{dataset_dir}} --runs {runs}
+    command: python custom.py --file {{dataset_dir}} --runs {{runs}}
     preprocess: echo "Custom preprocess for config custom_exp_{{dataset_dir}}"
 
   - name: weak_scaling
     cluster_config: other_cluster_config
     variables:
-      weak_scaling_params: [(1, 1024), (2, 2048), (4, 4098)]
-    command: python custom.py --n_cpus {weak_scaling.1} --array_size {weak_scaling.2}
+      cpus: {1, 2, 4}
+      weak_scaling_params: !python |
+        10^{{cpus}}
+    command: python custom.py --n_cpus {{cpus}} --array_size {{weak_scaling_params}}
 ```
 
 ## Implementation Plan
