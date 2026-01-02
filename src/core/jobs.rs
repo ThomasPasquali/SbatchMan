@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::core::jobs::utils::{escape_for_printf, get_timestamp_string};
-use crate::core::parsers::variables::{CompleteVar, Variable};
+use crate::core::parsers::combination_generator::{CompleteVar, ListNode};
 use crate::core::{
   cluster_configs::ClusterConfig,
   database::{
@@ -251,7 +251,7 @@ impl Job {
 
   pub fn generate_from(
     cluster_config: &ClusterConfig,
-    variables: &Vec<Variable>,
+    variables: &Vec<ListNode>,
     command: String,
     preprocess: Option<String>,
     postprocess: Option<String>,

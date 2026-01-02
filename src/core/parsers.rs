@@ -2,10 +2,10 @@ mod configs;
 mod includes;
 mod jobs;
 mod utils;
-pub mod variables;
-mod variable_substitutions;
+mod combination_generator;
+mod variables;
 mod multi_hashmap;
-mod template_engine;
+mod template_parser;
 
 #[cfg(test)]
 mod tests;
@@ -47,4 +47,8 @@ pub enum ParserError {
   CyclicDependency(),
   #[error("Invalid indexed variable: {0}")]
   InvalidIndexedVariable(String),
+  #[error("File read error for file {0}: {1}")]
+  FileReadError(String, String),
+  #[error("Cyclic dependency detected among variables")]
+  CyclicVariableDependency(),
 }

@@ -2,13 +2,11 @@ use crate::core::cluster_configs::ClusterConfig;
 use crate::core::database::models::{Cluster, Config, Job, Scheduler, Status};
 use crate::core::jobs::local::LocalScheduler;
 use crate::core::jobs::utils::parse_time_to_seconds;
-use crate::core::jobs::{JobError, SchedulerTrait};
+use crate::core::jobs::SchedulerTrait;
 
 use log::debug;
-use serde::Deserialize;
 use serde_json::json;
 use std::fs;
-use std::path::Path;
 use tempfile::TempDir;
 
 mod local;

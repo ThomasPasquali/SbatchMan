@@ -1,7 +1,6 @@
 use std::fs;
 
 use chrono::{Datelike, Timelike};
-use serde::Deserialize;
 use serde_json::json;
 use tempfile::TempDir;
 

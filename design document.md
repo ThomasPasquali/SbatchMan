@@ -191,15 +191,46 @@ pub struct JobFilter {
   * **Clusters Configuration File:** Defines clusters and their configurations.
   * **Jobs Configuration File:** Defines jobs to be submitted.
 
+### Clusters Configuration File
+The clusters configuration file allows defining multiple clusters, each with its own set of configurations. The general structure is as follows:
+
+```yaml
+include: <optional path to variables file>
+clusters:
+  <cluster_name>:
+    scheduler: <scheduler_type>
+    variables:
+      <variable_definitions>
+    params:
+      <cluster_level_parameters>
+    configs:
+      - name: <config_name>
+        variables:
+          <variable_definitions>
+        params:
+          <config_level_parameters>
+        exclude: <exclusion_condition>
+```
+Parameters and variables defined at the cluster level apply to all configurations within that cluster, while parameters and variables defined at the configuration level override those for that specific configuration.
+Allowed parameters depend on the scheduler type, but the following are accepted for all schedulers:
+  * `preprocess`: A command or list of commands to run before the main job and preprocess commands.
+  * `postprocess`: A command or list of commands to run after the main job and postprocess commands.
+  * `env`: A mapping of environment variables to set for the job.
+The `exclude` field allows specifying conditions under which certain configurations should be excluded from generation. The condition is interpreted as a python expression where variables can be referenced using the `{{ var }}` notation (see Substitutions section).
+
+### Jobs Configuration File
+TODO
+
+### Variables
 Variables can be used for generating multiple cluster configurations and job variants. The following main variable types are defined: simple variables, lists, standard maps, cluster maps, and special variables.
-  * Simple types:
-    * **string**: A standard string value.
-    * **int**: An integer value. (https://yaml.org/spec/1.2.2/#10213-integer)
-    * **float**: A floating-point value. (https://yaml.org/spec/1.2.2/#10214-floating-point)
-    * **bool**: A boolean value. (https://yaml.org/spec/1.2.2/#10212-boolean)
-  * Lists: lists of values. When multiple list variables are defined, all combinations of their values are generated.
-  * Standard maps: key-value pairs, where the value can be referenced using the key. Values can be either simple types or lists.
-  * Cluster maps: key-value pairs that can be used in job configurations to select different values based on the cluster being used. When referencing a cluster map, the value corresponding to the current cluster is used. Values can be either simple types or lists.
+  * Scalar types:
+    * *string*: A standard string value.
+    * *int*: An integer value. (https://yaml.org/spec/1.2.2/#10213-integer)
+    * *float*: A floating-point value. (https://yaml.org/spec/1.2.2/#10214-floating-point)
+    * *bool*: A boolean value. (https://yaml.org/spec/1.2.2/#10212-boolean)
+  * Lists: lists of values. Values must be scalars.
+  * Standard maps: key-value pairs, where the value can be referenced using the key. Values must be scalars.
+  * Cluster maps: key-value pairs. The value corresponding to the current cluster is used. Values must be scalars.
   * Special types:
     * `!dir <path>`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
     * `!file <path>`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
@@ -215,9 +246,9 @@ These work the same way as other variables. It is not possible to redefine these
 
 **Note: variable names are case-insensitive.**
 
-### Substitutions
+#### Substitutions
 Variables can be referenced in the following fields:
-  - Clusters config file: `name`, all fields inside `params` and `defaults`
+  - Clusters config file: `name`, all fields inside `params`
     Configuration names must be unique within each cluster. This means that if a variable is a list, you need to include that variable in the. `name` field as well, so that each configuration has a unique name.
   - Jobs config file: `command`, `preprocess`, `postprocess`, `name`, `cluster_config`
 
@@ -225,7 +256,9 @@ To reference a variable, use the `{{ var }}` notation. To reference a value insi
 
 The same notation is used in `python` blocks to reference variables.
 
-Technical note: when parsing the python block, a static analysis is run to check for used variables, the actual control flow is not considered. Therefore, if multiple lists are used, you might end up with duplicate jobs.
+Technical limitations:
+  * Nested substitutions are not supported. For example, `{{ var1_{{var2}} }}` is not allowed.
+  * Lists, standard maps and cluster maps cannot reference other variables inside their definitions.
 
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
@@ -272,7 +305,7 @@ clusters:
     params:
       account: "example_default_account"
       extra_params: "--gres=gpu:1"
-      preprocess_commands:
+      preprocess:
         - "./my-custom-command"
         - "module load openmpi"
       env:
@@ -318,7 +351,6 @@ variables:
   matrix_size: !python |
     {{runs}} * 10
   flags:
-    default: ['--flag_default']
     per_cluster:
       "clusterA": ['--flag1', '--flag2']
       "clusterB": ['--flag3']

@@ -15,7 +15,7 @@ use crate::core::{
     ParserError, includes::get_include_variables, multi_hashmap::MultiHashMap, utils::{
       load_yaml_from_file, lookup_mapping, lookup_sequence, lookup_str, to_mapping, to_string,
       value_from_str, yaml_lookup,
-    }, variables::{Variable, parse_variables}
+    }, combination_generator::{ListNode, parse_variables}
   },
 };
 
@@ -89,8 +89,8 @@ fn parse_params(
 fn parse_config(
   config: &YamlOwned,
   scheduler: &Scheduler,
-  top_variables: &LinkedHashMap<String, Variable>,
-  cluster_variables: &LinkedHashMap<String, Variable>,
+  top_variables: &LinkedHashMap<String, ListNode>,
+  cluster_variables: &LinkedHashMap<String, ListNode>,
   cluster_params: &Parameters,
 ) -> Result<NewConfig, ParserError> {
   // Parse variables
@@ -125,7 +125,7 @@ fn parse_config(
 fn parse_cluster(
   cluster_name: String,
   cluster: &saphyr::YamlOwned,
-  top_variables: &LinkedHashMap<String, Variable>,
+  top_variables: &LinkedHashMap<String, ListNode>,
 ) -> Result<NewClusterConfig, ParserError> {
   // Parse scheduler
   let scheduler_str = lookup_str(cluster, "scheduler")?;

@@ -1,5 +1,3 @@
-use serde_json::json;
-
 use crate::core::cluster_configs::ClusterConfig;
 use crate::core::database::models::Status;
 use crate::core::jobs::{JobLog, utils::*};

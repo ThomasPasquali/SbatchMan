@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::core::parsers::multi_hashmap::MultiHashMap;
 use crate::core::parsers::ParserError;
 use crate::core::parsers::utils::{load_yaml_from_file, lookup_mapping, yaml_lookup};
-use crate::core::parsers::variables::{Variable, parse_variables};
+use crate::core::parsers::variables::{CompleteVar, parse_variables};
 use log::debug;
 
 /// Push a file to the include list, with some added checks.
@@ -53,7 +53,7 @@ fn push_file_to_include_list(
 /// An error is raised if a file is included multiple times (to prevent circular includes).
 pub fn get_include_variables<'a>(
   root: &Path,
-  multi_hashmap: &mut MultiHashMap<String, Variable>,
+  multi_hashmap: &mut MultiHashMap<String, CompleteVar>,
 ) -> Result<(), ParserError> {
   // Keep track of included files to prevent circular includes
   let mut included_files = vec![];

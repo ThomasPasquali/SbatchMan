@@ -9,12 +9,12 @@ use crate::core::{
     tests::{create_test_cluster, create_test_config},
     variable_substitutions::{get_variables_dependency, scalar_to_string},
   },
-  parsers::variables::{BasicVar, ClusterMap, CompleteVar, Scalar, Variable},
+  parsers::combination_generator::{BasicVar, ClusterMap, CompleteVar, Scalar, ListNode},
 };
 
 // Helper function to create a variable
-fn test_variable(name: &str, contents: CompleteVar) -> Variable {
-  Variable {
+fn test_variable(name: &str, contents: CompleteVar) -> ListNode {
+  ListNode {
     name: name.to_string(),
     contents,
   }
