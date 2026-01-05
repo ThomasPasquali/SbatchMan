@@ -12,10 +12,14 @@ use serde_json::json;
 use crate::core::{
   database::models::{NewCluster, NewClusterConfig, NewConfig, Scheduler},
   parsers::{
-    ParserError, includes::get_include_variables, multi_hashmap::MultiHashMap, utils::{
+    ParserError,
+    combination_generator::{ListNode, parse_variables},
+    includes::get_include_variables,
+    multi_hashmap::MultiHashMap,
+    utils::{
       load_yaml_from_file, lookup_mapping, lookup_sequence, lookup_str, to_mapping, to_string,
       value_from_str, yaml_lookup,
-    }, combination_generator::{ListNode, parse_variables}
+    },
   },
 };
 
@@ -173,16 +177,21 @@ fn parse_cluster(
   Ok(parsed_cluster)
 }
 
-/// Reads YAML file that defines cluster configurations. Returns a vector of parsed cluster configurations.
-/// High level description of the parsing logic:
-/// 1. Add included variables and top-level variables to the variables multi-hashmap
-/// 2. For each cluster:
-///   a. Add cluster-level variables to the variables multi-hashmap
-///   b. Add cluster-level default params to the parameters multi-hashmap
-///   c. For each config in the cluster:
-///     i. Add the config-level variables and parameters to the multi-hashmaps
-///     ii. Iterate over the parameter multi-hashmap to check if all referenced variables exist
-/// 
+/** Reads YAML file that defines cluster configurations. Returns a vector of parsed cluster configurations.
+ *
+ * High level description of the parsing logic:
+ * - parse top-level variables and add them to the variable multi-hashmap
+ * - parse top-level config entries and add them to the config multi-hashmap
+ * - for each cluster in the clusters configuration:
+ *   - parse cluster-level variables and add them to the multi-hashmap
+ *   - parse cluster-level config entries and add them to the config multi-hashmap
+ *   - for each config in the cluster:
+ *     - parse cluster-level variables and add them to the multi-hashmap
+ *     - parse cluster-level config entries and add them to the config multi-hashmap
+ *     - iterate over config multi-hashmap to build a dependency graph of variables and config entries
+ *     - topologically sort the dependency graph
+ *     - run combination generation procedure
+ */
 pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig>, ParserError> {
   let mut multi_hashmap = MultiHashMap::new();
   get_include_variables(root, multi_hashmap)?;

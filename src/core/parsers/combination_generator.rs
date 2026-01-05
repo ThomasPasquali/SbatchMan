@@ -1,321 +1,332 @@
 use crate::core::parsers::{
   ParserError,
   multi_hashmap::MultiHashMap,
-  template_parser::{Template, TemplateSegment, Variable, VariableSegment},
+  template_parser::{Template, TemplateSegment, VariableSegment},
   variables::{BasicVar, CompleteVar, ListVar, MapKind, MapVar, PythonVar, Scalar},
 };
 use petgraph::graph::{DiGraph, NodeIndex};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
-struct ListNode<'a> {
-  list_var: &'a ListVar,
-  index: usize,
-}
+// --- 1. Graph Definitions (Immutable) ---
 
-impl ListNode<'_> {
-  fn get_value(&self) -> Result<Scalar, ParserError> {
-    self.list_var.get(self.index)
-  }
-}
-
+#[derive(Clone, Debug)]
 enum MapKey {
   Constant(String),
   Variable(String),
 }
 
-struct MapNode<'a> {
-  map_var: &'a MapVar,
-  key: MapKey,
+/// Represents the DEFINITION of a dynamic node.
+/// No mutable state (indices/caches) exists here.
+#[derive(Clone, Debug)]
+enum DynamicNodeDef<'a> {
+  List(&'a ListVar),
+  Map(&'a MapVar, MapKey),
+  Python(&'a PythonVar),
+}
+
+// --- 2. Runtime State (Mutable) ---
+
+#[derive(Clone, Debug)]
+struct NodeState {
+  /// Current index in the list/map (0 for python/scalars)
   index: usize,
+  /// Cached result of the current step to avoid re-computation
+  cached_value: Option<Scalar>,
 }
 
-impl MapNode<'_> {
-  fn get_value(&self, key: &str) -> Result<Scalar, ParserError> {
-    self.map_var.get(key).and_then(|value| match value {
-      BasicVar::List(list) => list.get(self.index),
-      BasicVar::Scalar(scalar) => Ok(scalar.clone()),
-    })
+impl NodeState {
+  fn new() -> Self {
+    Self {
+      index: 0,
+      cached_value: None,
+    }
   }
-}
-
-struct PythonNode<'a> {
-  python_var: &'a PythonVar,
-  computed_cache: Scalar,
-}
-
-impl PythonNode<'_> {
-  fn evaluate(&mut self, context: &CombinationGenerator) -> Result<(), ParserError> {
-    // TODO
-    Ok(())
-  }
-
-  fn get_value(&self) -> Result<Scalar, ParserError> {
-    Ok(self.computed_cache.clone())
-  }
-}
-
-enum DynamicVarNode<'a> {
-  List(ListNode<'a>),     // Represents a list variable (stores the index)
-  Map(MapNode<'a>),       // Represents a Map (stores the key variable name and index)
-  Python(PythonNode<'a>), // Represents Python Code (stores the code/expression)
 }
 
 pub(crate) struct CombinationGenerator<'a> {
   variable_map: &'a MultiHashMap<String, CompleteVar>,
+  /// Maps variable name -> Graph Node Index
   dynamic_vars: HashMap<String, NodeIndex>,
-  dependency_graph: DiGraph<DynamicVarNode<'a>, ()>,
+  /// Dependency Graph (Definitions only)
+  graph: DiGraph<DynamicNodeDef<'a>, ()>,
   cluster: String,
 }
 
 impl<'a> CombinationGenerator<'a> {
-  fn new(variable_map: &'a MultiHashMap<String, CompleteVar>, cluster: &str) -> Self {
+  pub fn new(variable_map: &'a MultiHashMap<String, CompleteVar>, cluster: &str) -> Self {
     Self {
       variable_map,
       cluster: cluster.to_string(),
       dynamic_vars: HashMap::new(),
-      dependency_graph: DiGraph::new(),
+      graph: DiGraph::new(),
     }
   }
 
-  /// Helper: Find a variable by name, or return error.
-  fn get_var(
-    variable_map: &'a MultiHashMap<String, CompleteVar>,
-    name: &str,
-  ) -> Result<&'a CompleteVar, ParserError> {
-    variable_map
-      .get(name)
-      .ok_or_else(|| ParserError::EvalError(format!("Variable '{}' not found", name)))
-  }
-
-  fn get_map_var(
-    variable_map: &'a MultiHashMap<String, CompleteVar>,
-    name: &str,
-  ) -> Result<&'a MapVar, ParserError> {
-    match Self::get_var(variable_map, name)? {
-      CompleteVar::Map(map_var) => Ok(map_var),
-      _ => Err(ParserError::EvalError(format!(
-        "Variable '{}' is not a map variable",
-        name
-      ))),
-    }
-  }
-
-  pub fn register_segments(
-    &mut self,
-    template: &Template,
-  ) -> Result<(), ParserError> {
-    for segment in template.segments.iter() {
-      self.register_segment(segment)?;
+  pub fn register_segments(&mut self, template: &Template) -> Result<(), ParserError> {
+    for segment in &template.segments {
+      if let TemplateSegment::VariableSegment(vs) = segment {
+        self.register_variable(vs)?;
+      }
     }
     Ok(())
   }
 
-  /// Register a variable segment into the combination generator.
-  /// If the segment introduces dynamic behavior (lists, maps, python), add nodes to the dependency graph.
-  fn register_segment(&mut self, segment: &TemplateSegment) -> Result<Option<NodeIndex>, ParserError> {
-    // Skip literals
-    let segment = match segment {
-      TemplateSegment::VariableSegment(vs) => vs,
-      _ => return Ok(None),
-    };
+  /// Registers a variable and returns its NodeIndex if it is dynamic.
+  fn register_variable(
+    &mut self,
+    segment: &VariableSegment,
+  ) -> Result<Option<NodeIndex>, ParserError> {
+    let name = segment.name();
 
-    let segment_name = segment.name();
-
-    if self.dynamic_vars.contains_key(&segment_name) {
-      return Ok(None); // Already registered
+    // Return early if already registered
+    if let Some(&idx) = self.dynamic_vars.get(&name) {
+      return Ok(Some(idx));
     }
 
+    // 1. Resolve the definition from the Variable Map
+    let var = self
+      .variable_map
+      .get(&name)
+      .ok_or_else(|| ParserError::EvalError(format!("Variable '{}' not found", name)))?;
+
+    // 2. Register based on type
     match segment {
-      VariableSegment::Variable(_) => {
-        // 1. Resolve the variable
-        let var = Self::get_var(&self.variable_map, &segment_name)?;
-
-        // 2. Handle types
-        match var {
-          CompleteVar::BasicVar(BasicVar::List(list_var)) => {
-            Ok(Some(self.add_list_variable(&segment_name, list_var)))
-          }
-          CompleteVar::BasicVar(BasicVar::Scalar(_)) => {
-            // Scalars are constant; no graph node needed.
-            Ok(None)
-          }
-          CompleteVar::Python(python_var) => {
-            Ok(Some(self.add_python_variable(&segment_name, python_var)?))
-          }
-          CompleteVar::Map(map_var) => {
-            // Special logic: Usage without an explicit key
-            match map_var.kind() {
-              MapKind::Cluster => {
-                // Implicit key: The current cluster name
-                Ok(Some(self.add_map_variable_with_const_key(&segment_name, map_var, &self.cluster.clone())))
-              }
-              MapKind::Standard => {
-                return Err(ParserError::EvalError(format!(
-                  "Map variable '{}' requires a key for lookup",
-                  segment_name
-                )));
-              }
-            }
-          }
+      VariableSegment::Variable(_) => match var {
+        CompleteVar::BasicVar(BasicVar::List(l)) => {
+          Ok(Some(self.add_node(name, DynamicNodeDef::List(l))))
         }
-      }
-
+        CompleteVar::Python(p) => self.add_python_node(name, p).map(Some),
+        CompleteVar::Map(m) => match m.kind() {
+          MapKind::Cluster => Ok(Some(self.add_node(
+            name,
+            DynamicNodeDef::Map(m, MapKey::Constant(self.cluster.clone())),
+          ))),
+          MapKind::Standard => Err(ParserError::EvalError(format!(
+            "Map '{}' needs a key",
+            name
+          ))),
+        },
+        _ => Ok(None), // Scalars are static
+      },
       VariableSegment::ConstantMap { map_name, key } => {
-        let map_var = Self::get_map_var(&self.variable_map, &map_name)?;
-        Ok(Some(self.add_map_variable_with_const_key(&segment_name, map_var, &key)))
+        let m = var
+          .as_map()
+          .ok_or_else(|| ParserError::EvalError(format!("'{}' is not a map", map_name)))?;
+        Ok(Some(self.add_node(
+          name,
+          DynamicNodeDef::Map(m, MapKey::Constant(key.clone())),
+        )))
       }
-
       VariableSegment::VariableMap { map_name, var_name } => {
-        let map_var = Self::get_map_var(&self.variable_map, &map_name)?;
-        Ok(self.add_map_variable_with_var_key(&segment_name, map_var, &var_name))
+        let m = var
+          .as_map()
+          .ok_or_else(|| ParserError::EvalError(format!("'{}' is not a map", map_name)))?;
+        // Recursively register the key variable
+        let key_idx = self.register_variable(&VariableSegment::Variable(var_name.clone()))?;
+
+        let idx = self.add_node(
+          name,
+          DynamicNodeDef::Map(m, MapKey::Variable(var_name.clone())),
+        );
+        // If key is dynamic, add dependency edge (Key -> Map)
+        if let Some(k_idx) = key_idx {
+          self.graph.add_edge(k_idx, idx, ());
+        }
+        Ok(Some(idx))
       }
     }
   }
 
-  fn add_list_variable(&mut self, var_name: &str, var: &'a ListVar) -> NodeIndex {
-    let node = DynamicVarNode::List(ListNode {
-      list_var: var,
-      index: 0,
-    });
-    let idx = self.dependency_graph.add_node(node);
-    self.dynamic_vars.insert(var_name.to_string(), idx);
+  fn add_node(&mut self, name: String, def: DynamicNodeDef<'a>) -> NodeIndex {
+    let idx = self.graph.add_node(def);
+    self.dynamic_vars.insert(name, idx);
     idx
   }
 
-  fn add_map_variable_with_var_key(&mut self, var_name: &str, var: &'a MapVar, key_var_name: &str) -> Result<NodeIndex, ParserError> {
-    let node = DynamicVarNode::Map(MapNode {
-      map_var: var,
-      key: MapKey::Variable(key_var_name.to_string()),
-      index: 0,
-    });
-    let idx = self.dependency_graph.add_node(node);
-
-    // Register dependency on the key variable
-    let dep_idx = self.register_segment(&TemplateSegment::VariableSegment(VariableSegment::Variable(key_var_name.to_string())))?;
-    if let Some(dep_idx) = dep_idx {
-      self.dependency_graph.add_edge(dep_idx, idx, ());
+  fn add_python_node(
+    &mut self,
+    name: String,
+    var: &'a PythonVar,
+  ) -> Result<NodeIndex, ParserError> {
+    let idx = self.add_node(name, DynamicNodeDef::Python(var));
+    // Parse dependencies inside the python template
+    for seg in &var.template.segments {
+      if let TemplateSegment::VariableSegment(vs) = seg {
+        if let Some(dep_idx) = self.register_variable(vs)? {
+          self.graph.add_edge(dep_idx, idx, ());
+        }
+      }
     }
-    self.dynamic_vars.insert(var_name.to_string(), idx);
     Ok(idx)
   }
 
-  fn add_map_variable_with_const_key(&mut self, var_name: &str, var: &'a MapVar, key: &str) -> NodeIndex {
-    let node = DynamicVarNode::Map(MapNode {
-      map_var: var,
-      key: MapKey::Constant(key.to_string()),
-      index: 0,
-    });
-    let idx = self.dependency_graph.add_node(node);
-    self.dynamic_vars.insert(var_name.to_string(), idx);
-    idx
-  }
-
-  fn add_python_variable(&mut self, var_name: &str, var: &'a PythonVar) -> Result<NodeIndex, ParserError> {
-    let node = DynamicVarNode::Python(PythonNode {
-      python_var: var,
-      computed_cache: Scalar::String(String::new()),
-    });
-    let node_idx = self.dependency_graph.add_node(node);
-
-    // Register dependencies. For each variable segment in the Python template, add an edge.
-    // The edges are from dependency -> dependent (i.e., from the variable used in Python to the Python node)
-    for segment in var.template.segments.iter() {
-      let dep_idx = self.register_segment(segment)?;
-      if let Some(dep_idx) = dep_idx {
-        self.dependency_graph.add_edge(dep_idx, node_idx, ());
-      }
-    }
-
-    self.dynamic_vars.insert(var_name.to_string(), node_idx);
-    Ok(node_idx)
-  }
-
-  pub(crate) fn try_iter(&'a self) -> Result<CombinationIterator<'a>, ParserError> {
-    let sorted_nodes = petgraph::algo::toposort(&self.dependency_graph, None)
+  pub fn try_iter(self) -> Result<CombinationIterator<'a>, ParserError> {
+    let sorted_nodes = petgraph::algo::toposort(&self.graph, None)
       .map_err(|_| ParserError::CyclicVariableDependency())?;
-    let size = sorted_nodes.len();
+
+    // Initialize state for every node
+    let mut state = HashMap::new();
+    for &idx in &sorted_nodes {
+      state.insert(idx, NodeState::new());
+    }
 
     Ok(CombinationIterator {
       generator: self,
       sorted_nodes,
+      state,
       finished: false,
     })
   }
 }
 
-// The Iterator now owns the state (indices)
+// --- 4. The Iterator (Runtime) ---
+
 pub(crate) struct CombinationIterator<'a> {
-  generator: &'a CombinationGenerator<'a>,
-  sorted_nodes: Vec<NodeIndex>, // Topological order (dependency -> dependent)
+  generator: CombinationGenerator<'a>,
+  sorted_nodes: Vec<NodeIndex>,
+  state: HashMap<NodeIndex, NodeState>,
   finished: bool,
 }
 
 impl<'a> CombinationIterator<'a> {
-  fn get_value(&self, var_name: &str) -> Result<Scalar, ParserError> {
-    if let Some(&node_idx) = self.generator.dynamic_vars.get(var_name) {
-      let node = &self.generator.dependency_graph[node_idx];
-      match node {
-        DynamicVarNode::List(list_node) => list_node.get_value(),
-        DynamicVarNode::Map(map_node) => {
-          // Resolve the key variable first
-          self
-            .get_value(&map_node.key_var_name)
-            .and_then(|key_scalar| {
-              let key_str = key_scalar.to_string();
-              map_node.get_value(&key_str)
-            })
-        }
-        DynamicVarNode::Python(python_node) => python_node.get_value(),
+  /// Public API: Get the value of a segment for the current iteration
+  pub fn get_segment_value(&mut self, segment: &VariableSegment) -> Result<Scalar, ParserError> {
+    let name = segment.name();
+
+    // 1. Try Dynamic
+    if let Some(&idx) = self.generator.dynamic_vars.get(&name) {
+      return self.resolve_node(idx);
+    }
+
+    // 2. Fallback Static
+    let var = self
+      .generator
+      .variable_map
+      .get(&name)
+      .ok_or_else(|| ParserError::EvalError(format!("Variable '{}' not found", name)))?;
+
+    match var {
+      CompleteVar::BasicVar(BasicVar::Scalar(s)) => Ok(s.clone()),
+      _ => Err(ParserError::EvalError(format!(
+        "Variable '{}' is dynamic but not found in graph",
+        name
+      ))),
+    }
+  }
+
+  /// Internal: Pull-based resolution with caching
+  fn resolve_node(&mut self, idx: NodeIndex) -> Result<Scalar, ParserError> {
+    // Check cache (borrow checker workaround: get index first, then compute)
+    let index = {
+      let s = self.state.get(&idx).unwrap();
+      if let Some(val) = &s.cached_value {
+        return Ok(val.clone());
       }
-    } else {
-      if let Some(var) = self.generator.variable_map.get(var_name) {
-        match var {
-          CompleteVar::BasicVar(BasicVar::Scalar(scalar)) => Ok(scalar.clone()),
-          _ => Err(ParserError::EvalError(format!(
-            "Variable '{}' is not a scalar",
-            var_name
-          ))),
+      s.index
+    };
+
+    // Compute value
+    let node_def = self.generator.graph[idx].clone();
+    let value = match node_def {
+      DynamicNodeDef::List(l) => l.get(index)?,
+      DynamicNodeDef::Map(m, key_source) => {
+        let key = match key_source {
+          MapKey::Constant(k) => k,
+          // Recursive call to resolve the variable key
+          MapKey::Variable(v) => self
+            .get_segment_value(&VariableSegment::Variable(v))?
+            .to_string(),
+        };
+
+        let val_in_map = m.get(&key)?;
+        match val_in_map {
+          BasicVar::List(l) => l.get(index)?,
+          BasicVar::Scalar(s) => s.clone(),
         }
-      } else {
-        Err(ParserError::EvalError(format!(
-          "Variable '{}' not found",
-          var_name
-        )))
       }
+      DynamicNodeDef::Python(_p) => {
+        // TODO: Execute python logic using self.get_segment_value to resolve inputs
+        Scalar::String("python_result".into())
+      }
+    };
+
+    // Update cache
+    if let Some(s) = self.state.get_mut(&idx) {
+      s.cached_value = Some(value.clone());
+    }
+    Ok(value)
+  }
+
+  /// Helper to determine how many items a node has in the current context
+  fn get_node_len(&mut self, idx: NodeIndex) -> Result<usize, ParserError> {
+    let node_def = self.generator.graph[idx].clone();
+    match node_def {
+      DynamicNodeDef::List(l) => Ok(l.len()),
+      DynamicNodeDef::Map(m, key_source) => {
+        let key = match key_source {
+          MapKey::Constant(k) => k,
+          MapKey::Variable(v) => self
+            .get_segment_value(&VariableSegment::Variable(v))?
+            .to_string(),
+        };
+        match m.get(&key)? {
+          BasicVar::List(l) => Ok(l.len()),
+          BasicVar::Scalar(_) => Ok(1), // Scalars count as length 1
+        }
+      }
+      DynamicNodeDef::Python(_) => Ok(1),
     }
   }
 }
 
 impl<'a> Iterator for CombinationIterator<'a> {
-  // Return the Context Snapshot (Map of all resolved variables)
-  type Item = &'a CombinationGenerator<'a>;
+  type Item = ();
 
   fn next(&mut self) -> Option<Self::Item> {
     if self.finished {
       return None;
     }
 
-    // Binary counter algorithm
+    // 1. Advance Logic (Odometer)
+    // Iterate independent vars first (or dependents, depending on desired order).
+    // Reverse topological order is standard for "dependent-first" counting,
+    // but for job matrices, we usually want independent vars to tick slowest.
+    let mut advanced = false;
 
-    // Iterate backwards through sorted nodes
-    for &node_idx in self.sorted_nodes.iter().rev() {
-      // Calculate size dynamically (because size might change based on previous vars)
-      let size = 1; // self.get_node_size(node_idx, ...);
-      let current_idx = self.indices.get_mut(&node_idx).unwrap();
+    for i in (0..self.sorted_nodes.len()).rev() {
+      let idx = self.sorted_nodes[i];
+      let len = self.get_node_len(idx).ok()?; // If error, stop iteration (simplification)
+      let state = self.state.get_mut(&idx).unwrap();
 
-      if *current_idx < size - 1 {
-        *current_idx += 1;
+      if state.index + 1 < len {
+        state.index += 1;
         advanced = true;
-        break; // Successfully incremented, stop cascading
+        // Since we changed one index, the caches of all dependent nodes must be cleared.
+        // Clear only dependents by performing a BFS from this node.
+        let mut to_clear = VecDeque::new();
+        to_clear.push_back(idx);
+        while let Some(current) = to_clear.pop_front() {
+          if let Some(s) = self.state.get_mut(&current) {
+            s.cached_value = None;
+          }
+          for neighbor in
+            self.generator.graph.neighbors_directed(current, petgraph::Direction::Outgoing)
+          {
+            to_clear.push_back(neighbor);
+          }
+        }
+
+        break;
       } else {
-        *current_idx = 0; // Reset and carry over to next node
+        state.index = 0; // Reset and carry over
       }
     }
 
     if !advanced {
       self.finished = true;
+      return None;
     }
 
-    Some(context)
+    Some(())
   }
 }

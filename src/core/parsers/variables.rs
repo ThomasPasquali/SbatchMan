@@ -31,6 +31,12 @@ pub struct ListVar {
 }
 
 impl ListVar {
+  pub fn len(&self) -> usize {
+    self.items.len()
+  }
+}
+
+impl ListVar {
   pub fn get(&self, index: usize) -> Result<Scalar, ParserError> {
     self.items.get(index).ok_or_else(|| {
       ParserError::EvalError(format!("Index {} out of bounds for list of length {}", index, self.items.len()))
