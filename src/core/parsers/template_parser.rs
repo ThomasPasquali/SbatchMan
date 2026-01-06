@@ -1,4 +1,4 @@
-use crate::core::parsers::ParserError;
+use crate::core::parsers::{ParserError, combination_generator::CombinationIterator};
 
 /**
  * Parses strings with variable substitutions into a structured format.
@@ -52,7 +52,7 @@ pub struct Template {
 
 
 impl Template {
-  pub(crate) fn parse_str(template_str: &str) -> Result<Self, ParserError> {
+  pub fn from_str(template_str: &str) -> Result<Self, ParserError> {
     let mut segments: Vec<TemplateSegment> = Vec::new();
     let mut remainder = template_str;
 
@@ -101,5 +101,20 @@ impl Template {
     }
 
     Ok(Template { segments })
+  }
+
+  /// Returns a string with all variable segments replaced by their evaluated values from the current combination.
+  pub fn render(&self, curr_combination: &CombinationIterator) -> Result<String, ParserError> {
+    let mut result = String::new();
+    for segment in &self.segments {
+      match segment {
+        TemplateSegment::Literal(lit) => result.push_str(lit),
+        TemplateSegment::VariableSegment(var_seg) => {
+          let value = curr_combination.get_segment_value(var_seg)?;
+          result.push_str(&value.to_string());
+        }
+      }
+    }
+    Ok(result)
   }
 }

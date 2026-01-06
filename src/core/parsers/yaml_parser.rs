@@ -19,6 +19,7 @@ pub(crate) fn yaml_lookup<'a>(node: &'a YamlOwned, key: &str) -> Option<&'a Yaml
 }
 
 /// Convert YAML node to string
+/// Example: "example"
 pub fn to_string(yaml: &YamlOwned) -> Result<String, ParserError> {
   match yaml.as_str() {
     Some(s) => Ok(s.to_string()),
@@ -30,6 +31,7 @@ pub fn to_string(yaml: &YamlOwned) -> Result<String, ParserError> {
 }
 
 /// Convert YAML node to sequence
+/// Example: [item1, item2, item3]
 pub fn to_sequence<'a>(yaml: &'a YamlOwned) -> Result<&'a Vec<YamlOwned>, ParserError> {
   match yaml {
     YamlOwned::Sequence(seq) => Ok(seq),
@@ -40,6 +42,8 @@ pub fn to_sequence<'a>(yaml: &'a YamlOwned) -> Result<&'a Vec<YamlOwned>, Parser
   }
 }
 
+/// Convert YAML node to mapping
+/// Example: {key1: value1, key2: value2}
 pub fn to_mapping<'a>(
   yaml: &'a YamlOwned,
 ) -> Result<&'a LinkedHashMap<YamlOwned, YamlOwned>, ParserError> {
@@ -53,6 +57,7 @@ pub fn to_mapping<'a>(
 }
 
 /// Lookup mapping by key and return string
+/// Example: key: "example", given key, returns "example"
 pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
   match yaml_lookup(yaml, key) {
     Some(value) => to_string(value),
@@ -61,6 +66,7 @@ pub fn lookup_str(yaml: &YamlOwned, key: &str) -> Result<String, ParserError> {
 }
 
 /// Lookup mapping by key and return sequence
+/// Example: key: [item1, item2, item3], given key, returns the sequence
 pub fn lookup_sequence<'a>(
   yaml: &'a YamlOwned,
   key: &str,
@@ -72,6 +78,7 @@ pub fn lookup_sequence<'a>(
 }
 
 /// Lookup a mapping by key and return a map
+/// Example: key: {key1: value1, key2: value2}, given key, returns the mapping
 pub fn lookup_mapping<'a>(
   yaml: &'a YamlOwned,
   key: &str,

@@ -1,5 +1,5 @@
 use crate::core::parsers::{
-  includes::get_include_variables,
+  includes::parse_include_variables,
   combination_generator::{BasicVar, CompleteVar, Scalar},
 };
 
@@ -115,7 +115,7 @@ macro_rules! assert_is_cluster_map {
 fn test_get_include_variables_simple() {
   let path = get_test_path("variables.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   let variables = result.unwrap();
 
   // variables.yaml includes recursive_vars.yaml
@@ -168,7 +168,7 @@ fn test_get_include_variables_simple() {
 fn test_get_include_variables_override() {
   let path = get_test_path("jobs.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_ok());
   let variables = result.unwrap();
 
@@ -186,7 +186,7 @@ fn test_get_include_variables_override() {
 fn test_get_include_variables_multiple_includes() {
   let path = get_test_path("clusters_configs.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_ok());
   let variables = result.unwrap();
 
@@ -223,7 +223,7 @@ fn test_get_include_variables_multiple_includes() {
 fn test_get_include_variables_no_includes() {
   let path = get_test_path("recursive_vars.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_ok());
   let variables = result.unwrap();
 
@@ -235,7 +235,7 @@ fn test_get_include_variables_no_includes() {
 fn test_get_include_variables_file_not_found() {
   let path = Path::new("/tmp/dummy.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_err());
   match result.err().unwrap() {
     ParserError::IoError(_) => {} // Correct error type
@@ -247,7 +247,7 @@ fn test_get_include_variables_file_not_found() {
 fn test_get_include_variables_include_empty() {
   let path = get_test_path("include_empty.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(matches!(
     result.err(),
     Some(ParserError::IncludeWrongType(..))
@@ -258,7 +258,7 @@ fn test_get_include_variables_include_empty() {
 fn test_get_include_variables_include_number() {
   let path = get_test_path("include_number.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(matches!(
     result.err(),
     Some(ParserError::IncludeWrongType(..))
@@ -269,7 +269,7 @@ fn test_get_include_variables_include_number() {
 fn test_special_types() {
   let path = get_test_path("special_types.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_ok());
   let variables = result.unwrap();
 
@@ -300,7 +300,7 @@ fn test_special_types() {
 #[test]
 fn test_get_include_variables_include_missing_file() {
   let path = get_test_path("include_missing_file.yaml");
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_err());
   match result.err().unwrap() {
     ParserError::IoError(_) => {} // Correct error type
@@ -312,7 +312,7 @@ fn test_get_include_variables_include_missing_file() {
 fn test_get_include_variables_no_include() {
   let path = get_test_path("no_include.yaml");
 
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_ok());
   let variables = result.unwrap();
 
@@ -322,7 +322,7 @@ fn test_get_include_variables_no_include() {
 }
 
 fn test_get_include_variables_circular_include(path: &Path) {
-  let result = get_include_variables(&path);
+  let result = parse_include_variables(&path);
   assert!(result.is_err());
   match result.err().unwrap() {
     ParserError::MultipleInclude(_) => {} // Correct error type

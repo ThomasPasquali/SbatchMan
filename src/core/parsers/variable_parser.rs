@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use crate::core::parsers::multi_hashmap::MultiHashMap;
 use crate::core::parsers::template_parser::Template;
-use crate::core::parsers::utils::value_from_str;
-use crate::core::parsers::{ParserError, utils::to_string};
+use crate::core::parsers::yaml_parser::{lookup_mapping, value_from_str};
+use crate::core::parsers::{ParserError, yaml_parser::to_string};
 use hashlink::LinkedHashMap;
 use saphyr::{ScalarOwned as YamlOwnedScalar, Tag, YamlOwned};
 
@@ -38,9 +39,17 @@ impl ListVar {
 
 impl ListVar {
   pub fn get(&self, index: usize) -> Result<Scalar, ParserError> {
-    self.items.get(index).ok_or_else(|| {
-      ParserError::EvalError(format!("Index {} out of bounds for list of length {}", index, self.items.len()))
-    }).cloned()
+    self
+      .items
+      .get(index)
+      .ok_or_else(|| {
+        ParserError::EvalError(format!(
+          "Index {} out of bounds for list of length {}",
+          index,
+          self.items.len()
+        ))
+      })
+      .cloned()
   }
 }
 
@@ -58,9 +67,10 @@ pub struct MapVar {
 
 impl MapVar {
   pub fn get(&self, key: &str) -> Result<&BasicVar, ParserError> {
-    self.map.get(key).ok_or_else(|| {
-      ParserError::EvalError(format!("Key '{}' not found in map variable", key))
-    })
+    self
+      .map
+      .get(key)
+      .ok_or_else(|| ParserError::EvalError(format!("Key '{}' not found in map variable", key)))
   }
 
   pub fn kind(&self) -> &MapKind {
@@ -188,12 +198,10 @@ fn parse_tagged(tag: &Tag, s: &YamlOwned) -> Result<CompleteVar, ParserError> {
   match tag.suffix.as_str() {
     "python" => {
       let code = to_string(s)?;
-      let template = Template::parse_str(&code)?;
+      let template = Template::from_str(&code)?;
       Ok(PythonVar { template }.into())
     }
-    _ => {
-      parse_tagged_basic_var(tag, s).map(CompleteVar::BasicVar)
-    }
+    _ => parse_tagged_basic_var(tag, s).map(CompleteVar::BasicVar),
   }
 }
 
@@ -231,9 +239,7 @@ fn parse_map_of_basic_vars(
 fn parse_basic_var(yaml: &YamlOwned) -> Result<BasicVar, ParserError> {
   match yaml {
     YamlOwned::Value(s) => Ok(BasicVar::Scalar(parse_scalar(s)?)),
-    YamlOwned::Tagged(tag, s) => {
-      parse_tagged_basic_var(tag, s)
-    },
+    YamlOwned::Tagged(tag, s) => parse_tagged_basic_var(tag, s),
     YamlOwned::Sequence(seq) => Ok(
       ListVar {
         items: parse_sequence_of_scalars(seq)?,
@@ -255,50 +261,57 @@ macro_rules! yaml_str {
 
 /// Main function to parse variables from a YAML node
 pub fn parse_variables(
-  yaml: &LinkedHashMap<YamlOwned, YamlOwned>,
-) -> Result<HashMap<String, CompleteVar>, ParserError> {
+  yaml: &YamlOwned,
+  all_variables: &mut MultiHashMap<String, CompleteVar>,
+) -> Result<(), ParserError> {
   let mut result: HashMap<String, CompleteVar> = HashMap::new();
-  // Ensure the top-level YAML is a mapping
-  for (k, v) in yaml.iter() {
-    let k = k.as_str().ok_or(wrong_type_err!(k, "string"))?;
-    let v = match v {
-      YamlOwned::Value(s) => parse_scalar(s).map(|x| CompleteVar::BasicVar(BasicVar::Scalar(x)))?,
-      YamlOwned::Tagged(tag, s) => parse_tagged(tag, s)?,
-      YamlOwned::Sequence(seq) => {
-        parse_sequence_of_scalars(seq).map(|x| ListVar { items: x }.into())?
-      }
-      YamlOwned::Mapping(map) => {
-        // Check for "per_cluster" key to determine if it's a ClusterMap
-        if let Some(cluster_map) = map.get(&yaml_str!("per_cluster")) {
-          // Parse the "per_cluster" mapping and construct the ClusterMap
-          MapVar {
-            map: parse_map_of_basic_vars(
-              cluster_map
-                .as_mapping()
-                .ok_or(wrong_type_err!(map, "map"))?,
-            )?,
-            kind: MapKind::Cluster,
-          }
-          .into()
-        } else if let Some(map) = map.get(&yaml_str!("map")) {
-          // Parse as a standard mapping variable
-          MapVar {
-            map: parse_map_of_basic_vars(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?)?,
-            kind: MapKind::Standard,
-          }
-          .into()
-        } else {
-          return Err(wrong_type_err!(
-            v,
-            "mapping with 'per_cluster' or 'map' key"
-          ));
+  if let Ok(yaml) = lookup_mapping(yaml, "variables") {
+    // Ensure the top-level YAML is a mapping
+    for (k, v) in yaml.iter() {
+      let k = k.as_str().ok_or(wrong_type_err!(k, "string"))?;
+      let v = match v {
+        YamlOwned::Value(s) => {
+          parse_scalar(s).map(|x| CompleteVar::BasicVar(BasicVar::Scalar(x)))?
         }
-      }
-      _ => {
-        return Err(wrong_type_err!(v, "scalar, list, or mapping"));
-      }
-    };
-    result.insert(k.to_string(), v);
+        YamlOwned::Tagged(tag, s) => parse_tagged(tag, s)?,
+        YamlOwned::Sequence(seq) => {
+          parse_sequence_of_scalars(seq).map(|x| ListVar { items: x }.into())?
+        }
+        YamlOwned::Mapping(map) => {
+          // Check for "per_cluster" key to determine if it's a ClusterMap
+          if let Some(cluster_map) = map.get(&yaml_str!("per_cluster")) {
+            // Parse the "per_cluster" mapping and construct the ClusterMap
+            MapVar {
+              map: parse_map_of_basic_vars(
+                cluster_map
+                  .as_mapping()
+                  .ok_or(wrong_type_err!(map, "map"))?,
+              )?,
+              kind: MapKind::Cluster,
+            }
+            .into()
+          } else if let Some(map) = map.get(&yaml_str!("map")) {
+            // Parse as a standard mapping variable
+            MapVar {
+              map: parse_map_of_basic_vars(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?)?,
+              kind: MapKind::Standard,
+            }
+            .into()
+          } else {
+            return Err(wrong_type_err!(
+              v,
+              "mapping with 'per_cluster' or 'map' key"
+            ));
+          }
+        }
+        _ => {
+          return Err(wrong_type_err!(v, "scalar, list, or mapping"));
+        }
+      };
+      result.insert(k.to_string(), v);
+    }
   }
-  Ok(result)
+
+  all_variables.push(result);
+  Ok(())
 }

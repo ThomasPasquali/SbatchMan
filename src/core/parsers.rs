@@ -1,9 +1,9 @@
-mod configs;
+mod config_parser;
 mod includes;
 mod jobs;
-mod utils;
+mod yaml_parser;
 mod combination_generator;
-mod variables;
+mod variable_parser;
 mod multi_hashmap;
 mod template_parser;
 
@@ -12,7 +12,7 @@ mod tests;
 
 use thiserror::Error;
 
-pub use configs::parse_clusters_configs_from_file;
+pub use config_parser::parse_clusters_configs_from_file;
 pub use jobs::{ParsedJob, parse_jobs_from_file};
 
 #[derive(Error, Debug)]

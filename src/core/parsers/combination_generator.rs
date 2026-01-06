@@ -2,12 +2,16 @@ use crate::core::parsers::{
   ParserError,
   multi_hashmap::MultiHashMap,
   template_parser::{Template, TemplateSegment, VariableSegment},
-  variables::{BasicVar, CompleteVar, ListVar, MapKind, MapVar, PythonVar, Scalar},
+  variable_parser::{self, BasicVar, CompleteVar, ListVar, MapKind, MapVar, PythonVar, Scalar},
 };
 use petgraph::graph::{DiGraph, NodeIndex};
-use std::collections::{HashMap, VecDeque};
+use pyo3::types::PyAnyMethods;
+use std::{
+  collections::{HashMap, VecDeque},
+  ffi::CString,
+};
 
-// --- 1. Graph Definitions (Immutable) ---
+// --- Graph Definitions ---
 
 #[derive(Clone, Debug)]
 enum MapKey {
@@ -16,7 +20,6 @@ enum MapKey {
 }
 
 /// Represents the DEFINITION of a dynamic node.
-/// No mutable state (indices/caches) exists here.
 #[derive(Clone, Debug)]
 enum DynamicNodeDef<'a> {
   List(&'a ListVar),
@@ -24,14 +27,19 @@ enum DynamicNodeDef<'a> {
   Python(&'a PythonVar),
 }
 
-// --- 2. Runtime State (Mutable) ---
-
+/// Represents the RUNTIME STATE of a dynamic node.
 #[derive(Clone, Debug)]
 struct NodeState {
   /// Current index in the list/map (0 for python/scalars)
   index: usize,
   /// Cached result of the current step to avoid re-computation
   cached_value: Option<Scalar>,
+}
+
+/// Represents a node in the dependency graph.
+struct DynamicNode<'a> {
+  def: DynamicNodeDef<'a>,
+  state: NodeState,
 }
 
 impl NodeState {
@@ -43,12 +51,19 @@ impl NodeState {
   }
 }
 
+/// The combination generator generates all combinations of variables that are used in the "registered" templates.
+/// Templates can be registered using the `register_template` method.
+/// After registering all templates, call `try_iter` to get an iterator over all combinations.
+/// The iterator is a standard Rust iterator, calling `next` will advance to the next combination.
+/// Use `get_segment_value` on the returned object to retrieve the value of a variable segment for the current combination.
 pub(crate) struct CombinationGenerator<'a> {
+  /// The complete variable map, used to get variable definitions.
   variable_map: &'a MultiHashMap<String, CompleteVar>,
-  /// Maps variable name -> Graph Node Index
+  /// Maps variable name -> Graph Node Index. Used to quickly find variables from their name when evaluating templates.
   dynamic_vars: HashMap<String, NodeIndex>,
-  /// Dependency Graph (Definitions only)
-  graph: DiGraph<DynamicNodeDef<'a>, ()>,
+  /// Dependency Graph. The only nodes in the graph are dynamic variables (lists, maps, python). Scalars do not need to be in the graph, as they never change. Edges represent dependencies (A -> B means B depends on A).
+  graph: DiGraph<DynamicNode<'a>, ()>,
+  /// The cluster name, used for cluster-specific map lookups.
   cluster: String,
 }
 
@@ -62,17 +77,18 @@ impl<'a> CombinationGenerator<'a> {
     }
   }
 
-  pub fn register_segments(&mut self, template: &Template) -> Result<(), ParserError> {
+  /// Register all variable segments found in the template. Variables must be defined in the variable map, otherwise an error is raised.
+  pub fn register_template(&mut self, template: &Template) -> Result<(), ParserError> {
     for segment in &template.segments {
       if let TemplateSegment::VariableSegment(vs) = segment {
-        self.register_variable(vs)?;
+        self.register_segment(vs)?;
       }
     }
     Ok(())
   }
 
-  /// Registers a variable and returns its NodeIndex if it is dynamic.
-  fn register_variable(
+  /// If the segment refers to a dynamic variable (list, map, python), register it. Registering means adding it to the graph and registering its dependencies recursively.
+  fn register_segment(
     &mut self,
     segment: &VariableSegment,
   ) -> Result<Option<NodeIndex>, ParserError> {
@@ -83,13 +99,13 @@ impl<'a> CombinationGenerator<'a> {
       return Ok(Some(idx));
     }
 
-    // 1. Resolve the definition from the Variable Map
+    // 1. Resolve the variable from the variable map
     let var = self
       .variable_map
       .get(&name)
       .ok_or_else(|| ParserError::EvalError(format!("Variable '{}' not found", name)))?;
 
-    // 2. Register based on type
+    // 2. Register based on type of segment and variable
     match segment {
       VariableSegment::Variable(_) => match var {
         CompleteVar::BasicVar(BasicVar::List(l)) => {
@@ -122,7 +138,7 @@ impl<'a> CombinationGenerator<'a> {
           .as_map()
           .ok_or_else(|| ParserError::EvalError(format!("'{}' is not a map", map_name)))?;
         // Recursively register the key variable
-        let key_idx = self.register_variable(&VariableSegment::Variable(var_name.clone()))?;
+        let key_idx = self.register_segment(&VariableSegment::Variable(var_name.clone()))?;
 
         let idx = self.add_node(
           name,
@@ -138,7 +154,11 @@ impl<'a> CombinationGenerator<'a> {
   }
 
   fn add_node(&mut self, name: String, def: DynamicNodeDef<'a>) -> NodeIndex {
-    let idx = self.graph.add_node(def);
+    let node = DynamicNode {
+      def,
+      state: NodeState::new(),
+    };
+    let idx = self.graph.add_node(node);
     self.dynamic_vars.insert(name, idx);
     idx
   }
@@ -149,10 +169,10 @@ impl<'a> CombinationGenerator<'a> {
     var: &'a PythonVar,
   ) -> Result<NodeIndex, ParserError> {
     let idx = self.add_node(name, DynamicNodeDef::Python(var));
-    // Parse dependencies inside the python template
+    // Register variables used in the python template and add dependency edges
     for seg in &var.template.segments {
       if let TemplateSegment::VariableSegment(vs) = seg {
-        if let Some(dep_idx) = self.register_variable(vs)? {
+        if let Some(dep_idx) = self.register_segment(vs)? {
           self.graph.add_edge(dep_idx, idx, ());
         }
       }
@@ -164,33 +184,23 @@ impl<'a> CombinationGenerator<'a> {
     let sorted_nodes = petgraph::algo::toposort(&self.graph, None)
       .map_err(|_| ParserError::CyclicVariableDependency())?;
 
-    // Initialize state for every node
-    let mut state = HashMap::new();
-    for &idx in &sorted_nodes {
-      state.insert(idx, NodeState::new());
-    }
-
     Ok(CombinationIterator {
       generator: self,
       sorted_nodes,
-      state,
       finished: false,
     })
   }
 }
 
-// --- 4. The Iterator (Runtime) ---
-
 pub(crate) struct CombinationIterator<'a> {
   generator: CombinationGenerator<'a>,
   sorted_nodes: Vec<NodeIndex>,
-  state: HashMap<NodeIndex, NodeState>,
   finished: bool,
 }
 
 impl<'a> CombinationIterator<'a> {
-  /// Public API: Get the value of a segment for the current iteration
-  pub fn get_segment_value(&mut self, segment: &VariableSegment) -> Result<Scalar, ParserError> {
+  /// Get the value of a variable segment for the current iteration. Call .next() to advance to the next combination.
+  pub fn get_segment_value(&self, segment: &VariableSegment) -> Result<Scalar, ParserError> {
     let name = segment.name();
 
     // 1. Try Dynamic
@@ -214,27 +224,27 @@ impl<'a> CombinationIterator<'a> {
     }
   }
 
-  /// Internal: Pull-based resolution with caching
-  fn resolve_node(&mut self, idx: NodeIndex) -> Result<Scalar, ParserError> {
+  /// Helper to resolve a dynamic node's value based on its current index and definition.
+  fn resolve_node(&self, idx: NodeIndex) -> Result<Scalar, ParserError> {
     // Check cache (borrow checker workaround: get index first, then compute)
+    let s = self.generator.graph.node_weight(idx).unwrap();
     let index = {
-      let s = self.state.get(&idx).unwrap();
-      if let Some(val) = &s.cached_value {
+      // The node should always exist
+      if let Some(val) = &s.state.cached_value {
         return Ok(val.clone());
       }
-      s.index
+      s.state.index
     };
 
     // Compute value
-    let node_def = self.generator.graph[idx].clone();
-    let value = match node_def {
-      DynamicNodeDef::List(l) => l.get(index)?,
-      DynamicNodeDef::Map(m, key_source) => {
+    let value = match s.def {
+      DynamicNodeDef::List(ref l) => l.get(index)?,
+      DynamicNodeDef::Map(ref m, ref key_source) => {
         let key = match key_source {
           MapKey::Constant(k) => k,
           // Recursive call to resolve the variable key
-          MapKey::Variable(v) => self
-            .get_segment_value(&VariableSegment::Variable(v))?
+          MapKey::Variable(v) => &self
+            .get_segment_value(&VariableSegment::Variable(v.to_string()))?
             .to_string(),
         };
 
@@ -244,22 +254,30 @@ impl<'a> CombinationIterator<'a> {
           BasicVar::Scalar(s) => s.clone(),
         }
       }
-      DynamicNodeDef::Python(_p) => {
-        // TODO: Execute python logic using self.get_segment_value to resolve inputs
-        Scalar::String("python_result".into())
+      DynamicNodeDef::Python(p) => {
+        // Substitute variables in the python template, run the code and return the result
+        let code = p.template.render(self)?;
+        let code = CString::new(code)
+          .map_err(|e| ParserError::EvalError(format!("Failed to convert code to CStr: {}", e)))?;
+        pyo3::Python::attach(|py| {
+          let result = py
+            .eval(&code, None, None)
+            .map_err(|e| ParserError::EvalError(format!("Python evaluation error: {}", e)))?;
+          let output = result.extract::<String>().map_err(|e| {
+            ParserError::EvalError(format!("Failed to extract Python eval result: {}", e))
+          })?;
+
+          Ok::<variable_parser::Scalar, ParserError>(Scalar::String(output))
+        })?
       }
     };
 
-    // Update cache
-    if let Some(s) = self.state.get_mut(&idx) {
-      s.cached_value = Some(value.clone());
-    }
     Ok(value)
   }
 
   /// Helper to determine how many items a node has in the current context
   fn get_node_len(&mut self, idx: NodeIndex) -> Result<usize, ParserError> {
-    let node_def = self.generator.graph[idx].clone();
+    let node_def = self.generator.graph[idx].def.clone();
     match node_def {
       DynamicNodeDef::List(l) => Ok(l.len()),
       DynamicNodeDef::Map(m, key_source) => {
@@ -282,21 +300,21 @@ impl<'a> CombinationIterator<'a> {
 impl<'a> Iterator for CombinationIterator<'a> {
   type Item = ();
 
+  // Advance to the next combination. Call .get_segment_value() to retrieve values. Returns None when all combinations have been generated.
   fn next(&mut self) -> Option<Self::Item> {
     if self.finished {
       return None;
     }
 
-    // 1. Advance Logic (Odometer)
-    // Iterate independent vars first (or dependents, depending on desired order).
-    // Reverse topological order is standard for "dependent-first" counting,
-    // but for job matrices, we usually want independent vars to tick slowest.
+    // Advance Logic (Odometer)
+    // Iterate independent vars first by reversing the topological order.
     let mut advanced = false;
 
     for i in (0..self.sorted_nodes.len()).rev() {
       let idx = self.sorted_nodes[i];
       let len = self.get_node_len(idx).ok()?; // If error, stop iteration (simplification)
-      let state = self.state.get_mut(&idx).unwrap();
+      let node = self.generator.graph.node_weight_mut(idx).unwrap();
+      let state = &mut node.state;
 
       if state.index + 1 < len {
         state.index += 1;
@@ -306,11 +324,21 @@ impl<'a> Iterator for CombinationIterator<'a> {
         let mut to_clear = VecDeque::new();
         to_clear.push_back(idx);
         while let Some(current) = to_clear.pop_front() {
-          if let Some(s) = self.state.get_mut(&current) {
-            s.cached_value = None;
+          // I retrieve the node again to satisfy the borrow checker, otherwise it complains about multiple mutable borrows on the graph.
+          // Invalidate cache
+          if let Some(s) = self.generator.graph.node_weight_mut(current) {
+            s.state.cached_value = None;
           }
-          for neighbor in
-            self.generator.graph.neighbors_directed(current, petgraph::Direction::Outgoing)
+          // Compute new value
+          let new_value = self.resolve_node(current).ok()?;
+          // Update cache
+          if let Some(s) = self.generator.graph.node_weight_mut(current) {
+            s.state.cached_value = Some(new_value);
+          }
+          for neighbor in self
+            .generator
+            .graph
+            .neighbors_directed(current, petgraph::Direction::Outgoing)
           {
             to_clear.push_back(neighbor);
           }

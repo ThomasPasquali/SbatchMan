@@ -19,7 +19,6 @@ fn get_set_config() {
 
   let new_config = NewConfig {
     config_name: "test_config".to_string(),
-    cluster_id: cluster.id,
     flags: flags,
     env: env,
   };

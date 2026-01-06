@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
 #[repr(i32)]
-#[derive(FromSqlRow, Debug, AsExpression, EnumString, PartialEq, Clone)]
+#[derive(FromSqlRow, Debug, AsExpression, EnumString, PartialEq, Clone, Copy)]
 #[diesel(sql_type = Integer)]
 pub enum Scheduler {
   Local,
@@ -82,7 +82,6 @@ pub struct Config {
 #[diesel(table_name = configs)]
 pub struct NewConfig {
   pub config_name: String,
-  pub cluster_id: i32,
   pub flags: serde_json::Value,
   pub env: serde_json::Value,
 }

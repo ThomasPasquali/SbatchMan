@@ -1,14 +1,14 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::core::parsers::multi_hashmap::MultiHashMap;
 use crate::core::parsers::ParserError;
-use crate::core::parsers::utils::{load_yaml_from_file, lookup_mapping, yaml_lookup};
-use crate::core::parsers::variables::{CompleteVar, parse_variables};
+use crate::core::parsers::yaml_parser::{load_yaml_from_file, yaml_lookup};
+use crate::core::parsers::variable_parser::{CompleteVar, parse_variables};
 use log::debug;
 
-/// Push a file to the include list, with some added checks.
+/// Push a file to the include list.
 /// Can handle both absolute and relative paths. Relative paths are resolved relative to the provided file path.
 /// Avoids adding duplicate includes by checking against the included_files list.
 fn push_file_to_include_list(
@@ -51,16 +51,15 @@ fn push_file_to_include_list(
 /// vars2.yaml
 /// vars3.yaml (lowest priority)
 /// An error is raised if a file is included multiple times (to prevent circular includes).
-pub fn get_include_variables<'a>(
+pub fn parse_include_variables<'a>(
   root: &Path,
-  multi_hashmap: &mut MultiHashMap<String, CompleteVar>,
+  variables: &mut MultiHashMap<String, CompleteVar>,
 ) -> Result<(), ParserError> {
   // Keep track of included files to prevent circular includes
   let mut included_files = vec![];
   // Start with the initial file
   let mut to_include = VecDeque::from([fs::canonicalize(root)?]);
   // Final variables collection
-  let mut variables = HashMap::new();
 
   // Process the include queue. Variables from this file are processed first. Then, variables from included files are processed, but do not override variables that have been already inserted.
   while let Some(current_path) = to_include.pop_front() {
@@ -68,14 +67,8 @@ pub fn get_include_variables<'a>(
 
     let yaml = load_yaml_from_file(&current_path)?;
 
-    // Parse variables from the current file
-    if let Ok(yaml_variables) = lookup_mapping(&yaml, "variables") {
-      let new_variables = parse_variables(&yaml_variables)?;
-      // Merge new variables, without overriding existing ones
-      for (k, v) in new_variables {
-        variables.entry(k).or_insert(v);
-      }
-    }
+    // Parse variables from the current file and add them to the multi-hashmap
+    parse_variables(&yaml, variables)?;
 
     if let Some(node) = yaml_lookup(&yaml, "include") {
       if let Some(file) = node.as_str() {
@@ -97,6 +90,5 @@ pub fn get_include_variables<'a>(
     included_files.push(fs::canonicalize(current_path)?);
   }
 
-  multi_hashmap.push_map(variables);
   Ok(())
 }

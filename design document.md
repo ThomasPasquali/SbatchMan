@@ -305,9 +305,7 @@ clusters:
     params:
       account: "example_default_account"
       extra_params: "--gres=gpu:1"
-      preprocess:
-        - "./my-custom-command"
-        - "module load openmpi"
+      preprocess: "module load openmpi"
       env:
         EXAMPLE_ENV_VAR: 1
     configs:
