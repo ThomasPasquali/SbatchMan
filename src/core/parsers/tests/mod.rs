@@ -1,6 +1,6 @@
 use crate::core::parsers::{
   includes::parse_include_variables,
-  combination_generator::{BasicVar, CompleteVar, Scalar},
+  variable_parser::{BasicVar, CompleteVar, Scalar},
 };
 
 use super::*;

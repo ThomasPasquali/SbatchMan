@@ -1,6 +1,6 @@
 mod config_parser;
 mod includes;
-mod jobs;
+mod job_parser;
 mod yaml_parser;
 mod combination_generator;
 mod variable_parser;
@@ -13,7 +13,7 @@ mod tests;
 use thiserror::Error;
 
 pub use config_parser::parse_clusters_configs_from_file;
-pub use jobs::{ParsedJob, parse_jobs_from_file};
+pub use job_parser::{ParsedJob, parse_jobs_from_file};
 
 #[derive(Error, Debug)]
 pub enum ParserError {

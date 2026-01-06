@@ -131,6 +131,7 @@ fn parse_config(
     }
     configs.push(NewConfig {
       config_name: name.clone(),
+      cluster_id: 0, // to be filled when inserting in the DB
       flags: json!(flags),
       env: json!(env),
     });
@@ -197,19 +198,16 @@ fn parse_cluster(
   Ok(parsed_cluster)
 }
 
-/** Reads YAML file that defines cluster configurations. Returns a vector of parsed cluster configurations.
+/** Reads YAML file that defines cluster configurations. Returns a vector of parsed clusters with their configurations.
  *
  * High level description of the parsing logic:
  * - parse top-level variables and add them to the variable multi-hashmap
- * - parse top-level config entries and add them to the config multi-hashmap
  * - for each cluster in the clusters configuration:
- *   - parse cluster-level variables and add them to the multi-hashmap
- *   - parse cluster-level config entries and add them to the config multi-hashmap
+ *   - parse cluster-level variables/config entries/env and add them to the respective multi-hashmaps
  *   - for each config in the cluster:
- *     - parse cluster-level variables and add them to the multi-hashmap
- *     - parse cluster-level config entries and add them to the config multi-hashmap
- *     - iterate over config multi-hashmap to build a dependency graph of variables and config entries
- *     - topologically sort the dependency graph
+ *     - parse config-level variables/config entries/env and add them to the respective multi-hashmaps
+ *     - iterate over config and env multi-hashmaps to build the dependency graph of variables
+ *     - sort the dependency graph topologically
  *     - run combination generation procedure
  */
 pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig>, ParserError> {

@@ -82,6 +82,7 @@ pub struct Config {
 #[diesel(table_name = configs)]
 pub struct NewConfig {
   pub config_name: String,
+  pub cluster_id: i32,
   pub flags: serde_json::Value,
   pub env: serde_json::Value,
 }
