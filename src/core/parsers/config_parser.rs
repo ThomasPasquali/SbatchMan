@@ -16,10 +16,9 @@ use crate::core::{
     includes::parse_include_variables,
     multi_hashmap::MultiHashMap,
     template_parser::Template,
-    variable_parser::{CompleteVar, parse_variables},
+    variable_parser::{CompleteVar, parse_variables as parse_variables_hashmap},
     yaml_parser::{
-      load_yaml_from_file, lookup_mapping, lookup_sequence, lookup_str, to_mapping, to_string,
-      value_from_str, yaml_lookup,
+      check_mapping_keys, load_yaml_from_file, lookup_mapping, lookup_sequence, lookup_str, to_mapping, to_string, value_from_str, yaml_lookup
     },
   },
 };
@@ -91,28 +90,34 @@ fn parse_params(
 }
 
 fn parse_config(
-  config: &YamlOwned,
+  yaml: &YamlOwned,
   scheduler: Scheduler,
   cluster_name: String,
   variables: &mut MultiHashMap<String, CompleteVar>,
   config_entries: &mut MultiHashMap<String, Template>,
   env_variables: &mut MultiHashMap<String, Template>,
 ) -> Result<Vec<NewConfig>, ParserError> {
+  let required_keys = vec!["name"];
+  let optional_keys = vec!["variables", "params"];
+  check_mapping_keys(&yaml, &required_keys, &optional_keys)?;
+
   // Parse variables
-  parse_variables(config, variables)?;
+  parse_variables(yaml, variables)?;
 
   // Parse params (config entries and env)
-  parse_params(config, scheduler, config_entries, env_variables)?;
+  parse_params(yaml, scheduler, config_entries, env_variables)?;
 
-  let name = lookup_str(config, "name")?;
+  let name_str = lookup_str(yaml, "name")?;
+  let name_template = Template::from_str(&name_str)?;
 
   let mut generator = CombinationGenerator::new(variables, &cluster_name);
+  generator.register_template(&name_template)?;
   // Register all templates
   for (_, template) in config_entries.iter() {
-    generator.register_template(template);
+    generator.register_template(template)?;
   }
   for (_, template) in env_variables.iter() {
-    generator.register_template(template);
+    generator.register_template(template)?;
   }
 
   let mut combinations = generator.try_iter()?;
@@ -130,7 +135,7 @@ fn parse_config(
       env.insert(name.clone(), template.render(&combinations)?);
     }
     configs.push(NewConfig {
-      config_name: name.clone(),
+      config_name: name_template.render(&combinations)?,
       cluster_id: 0, // to be filled when inserting in the DB
       flags: json!(flags),
       env: json!(env),
@@ -151,6 +156,10 @@ fn parse_cluster(
   yaml: &YamlOwned,
   variables: &mut MultiHashMap<String, CompleteVar>,
 ) -> Result<NewClusterConfig, ParserError> {
+  let required_keys = vec!["scheduler", "configs"];
+  let optional_keys = vec!["max_jobs", "params", "variables"];
+  check_mapping_keys(&yaml, &required_keys, &optional_keys)?;
+
   // Parse scheduler
   let scheduler_str = lookup_str(yaml, "scheduler")?;
   let scheduler = Scheduler::from_str(&scheduler_str)
@@ -211,13 +220,16 @@ fn parse_cluster(
  *     - run combination generation procedure
  */
 pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterConfig>, ParserError> {
-  let mut variables = MultiHashMap::new();
-  parse_include_variables(root, &mut variables)?;
   let yaml = load_yaml_from_file(root)?;
+  let required_keys = vec!["clusters"];
+  let optional_keys = vec!["include", "variables"];
+  check_mapping_keys(&yaml, &required_keys, &optional_keys)?;
 
-  let clusters = lookup_mapping(&yaml, "clusters").map_err(|_| ParserError::EmptyClusterConfig)?;
+  let mut variables = MultiHashMap::new();
+  parse_include_variables(&yaml, root, &mut variables)?;
+
   let mut parsed_clusters = vec![];
-  for (cluster_name, configs) in clusters {
+  for (cluster_name, configs) in lookup_mapping(&yaml, "clusters")? {
     parsed_clusters.push(parse_cluster(
       to_string(cluster_name)?,
       configs,
@@ -225,4 +237,14 @@ pub fn parse_clusters_configs_from_file(root: &Path) -> Result<Vec<NewClusterCon
     )?);
   }
   Ok(parsed_clusters)
+}
+
+fn parse_variables(
+  config: &YamlOwned,
+  variables: &mut MultiHashMap<String, CompleteVar>,
+) -> Result<(), ParserError> {
+  let mut temp_variables = HashMap::new();
+  parse_variables_hashmap(config, &mut temp_variables)?;
+  variables.push(temp_variables);
+  Ok(())
 }

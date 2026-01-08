@@ -1,0 +1,2 @@
+variables:
+  dir_not_found: !dir src/core/parsers/tests/files/non_existent_directory

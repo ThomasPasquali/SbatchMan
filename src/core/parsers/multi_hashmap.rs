@@ -98,3 +98,23 @@ where
     }
   }
 }
+
+impl<K, V> std::fmt::Display for MultiHashMap<K, V>
+where
+  K: Eq + Hash + Ord + std::fmt::Debug,
+  V: std::fmt::Debug,
+{
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let mut entries: Vec<_> = self.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    write!(f, "{{")?;
+    for (i, (k, v)) in entries.iter().enumerate() {
+      if i > 0 {
+        write!(f, ", ")?;
+      }
+      write!(f, "{:?}: {:?}", k, v)?;
+    }
+    write!(f, "}}")
+  }
+}

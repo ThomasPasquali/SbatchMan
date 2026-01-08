@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::core::parsers::multi_hashmap::MultiHashMap;
 use crate::core::parsers::template_parser::Template;
 use crate::core::parsers::yaml_parser::{lookup_mapping, value_from_str};
 use crate::core::parsers::{ParserError, yaml_parser::to_string};
@@ -118,23 +117,9 @@ impl From<PythonVar> for CompleteVar {
 }
 
 impl CompleteVar {
-  pub fn as_list(&self) -> Option<&ListVar> {
-    match self {
-      CompleteVar::BasicVar(BasicVar::List(list)) => Some(list),
-      _ => None,
-    }
-  }
-
   pub fn as_map(&self) -> Option<&MapVar> {
     match self {
       CompleteVar::Map(map) => Some(map),
-      _ => None,
-    }
-  }
-
-  pub fn as_scalar(&self) -> Option<&Scalar> {
-    match self {
-      CompleteVar::BasicVar(BasicVar::Scalar(scalar)) => Some(scalar),
       _ => None,
     }
   }
@@ -160,6 +145,8 @@ fn parse_scalar(s: &YamlOwnedScalar) -> Result<Scalar, ParserError> {
   }
 }
 
+/// Handles only tags that produce BasicVar variants (i.e., not PythonVar).
+/// TODO: is working directory correct?
 fn parse_tagged_basic_var(tag: &Tag, s: &YamlOwned) -> Result<BasicVar, ParserError> {
   match tag.suffix.as_str() {
     "file" => {
@@ -192,8 +179,7 @@ fn parse_tagged_basic_var(tag: &Tag, s: &YamlOwned) -> Result<BasicVar, ParserEr
   }
 }
 
-/// Parse a tagged YAML node into Scalar enum. Handles !file, !dir, and !python tags.
-/// TODO: is working directory correct?
+/// Parse a tagged YAML node into a CompleteVar enum.
 fn parse_tagged(tag: &Tag, s: &YamlOwned) -> Result<CompleteVar, ParserError> {
   match tag.suffix.as_str() {
     "python" => {
@@ -205,9 +191,12 @@ fn parse_tagged(tag: &Tag, s: &YamlOwned) -> Result<CompleteVar, ParserError> {
   }
 }
 
-/// Parse a sequence of scalars into Vec<Scalar>
+/// Parse a sequence of scalars into Vec<Scalar>. Throws error if the list is empty or contains non-scalar elements.
 fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, ParserError> {
   let mut scalars: Vec<Scalar> = Vec::new();
+  if seq.is_empty() {
+    return Err(ParserError::EmptyList);
+  }
   for item in seq.iter() {
     match item {
       YamlOwned::Value(s) => {
@@ -259,12 +248,11 @@ macro_rules! yaml_str {
   };
 }
 
-/// Main function to parse variables from a YAML node
+/// Parses all types of variables from a YAML node and inserts them into the provided variables HashMap. Elements already present in the HashMap are not overridden (this feature is used when parsing multi-file includes).
 pub fn parse_variables(
   yaml: &YamlOwned,
-  all_variables: &mut MultiHashMap<String, CompleteVar>,
+  variables: &mut HashMap<String, CompleteVar>,
 ) -> Result<(), ParserError> {
-  let mut result: HashMap<String, CompleteVar> = HashMap::new();
   if let Ok(yaml) = lookup_mapping(yaml, "variables") {
     // Ensure the top-level YAML is a mapping
     for (k, v) in yaml.iter() {
@@ -308,10 +296,10 @@ pub fn parse_variables(
           return Err(wrong_type_err!(v, "scalar, list, or mapping"));
         }
       };
-      result.insert(k.to_string(), v);
+      // Invert in variables only if key is not already present
+      variables.entry(k.to_string()).or_insert(v);
     }
   }
 
-  all_variables.push(result);
   Ok(())
 }

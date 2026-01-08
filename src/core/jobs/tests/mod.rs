@@ -10,7 +10,6 @@ use std::fs;
 use tempfile::TempDir;
 
 mod local;
-mod variable_substitutions;
 
 fn create_test_job(id: i32, directory: &str) -> Job {
   Job {

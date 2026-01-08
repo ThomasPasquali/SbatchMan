@@ -2,9 +2,7 @@
 # Tests for special variable types: directory, file, and tagged python code.
 
 variables:
-  dataset_dir: !dir datasets/images
-
-  gpu_list: !file gpus.txt
+  gpu_list: !file src/core/parsers/tests/files/gpus.txt
 
   generated_values: !python |
     # This Python code generates a list of values

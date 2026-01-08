@@ -51,4 +51,10 @@ pub enum ParserError {
   FileReadError(String, String),
   #[error("Cyclic dependency detected among variables")]
   CyclicVariableDependency(),
+  #[error("Invalid YAML format")]
+  InvalidYamlFormat,
+  #[error("Invalid key: \"{0}\". Valid keys are: {1}")]
+  InvalidKey(String, String),
+  #[error("Empty list is not allowed for variable definitions")]
+  EmptyList,
 }

@@ -18,7 +18,6 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::core::jobs::utils::{escape_for_printf, get_timestamp_string};
-use crate::core::parsers::combination_generator::{CompleteVar, ListNode};
 use crate::core::{
   cluster_configs::ClusterConfig,
   database::{
@@ -247,68 +246,6 @@ impl Job {
     );
 
     script.push_str(&format!("\n{} >> {}\n", printf_cmd, abs_path.display()));
-  }
-
-  pub fn generate_from(
-    cluster_config: &ClusterConfig,
-    variables: &Vec<ListNode>,
-    command: String,
-    preprocess: Option<String>,
-    postprocess: Option<String>,
-    python_header: Option<String>,
-  ) -> Vec<Self> {
-    let var_map: HashMap<String, &CompleteVar> = variables
-      .iter()
-      .map(|v| (v.name.clone(), &v.contents))
-      .collect();
-
-    // Build dependency graph
-    let dep_graph = DependencyGraph::build(&command, &preprocess, &postprocess, &var_map);
-
-    // Resolve variables to their values for this cluster
-    let resolved_vars = VariableResolver::resolve_for_cluster(cluster_config, &var_map, &dep_graph);
-
-    // Generate all combinations
-    let combinations = CartesianGenerator::generate(
-      &resolved_vars,
-      &dep_graph,
-      &command,
-      &preprocess,
-      &postprocess,
-    );
-
-    // Create jobs for each combination
-    combinations
-      .into_iter()
-      .map(|combo| {
-        let substituted_command =
-          substitute_and_evaluate(&command, &combo, &var_map, &dep_graph, &python_header);
-        let substituted_preprocess = preprocess
-          .as_ref()
-          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &dep_graph, &python_header));
-        let substituted_postprocess = postprocess
-          .as_ref()
-          .map(|p| substitute_and_evaluate(p, &combo, &var_map, &dep_graph, &python_header));
-
-        Self {
-          // FIXME
-          id: 0,
-          job_name: "FIXME".to_string(),
-          archived: None,
-          config_id: cluster_config.config.id,
-          directory: String::new(),
-          end_time: None,
-          submit_time: None,
-          status: Status::Created,
-          job_id: None,
-
-          command: substituted_command,
-          preprocess: substituted_preprocess,
-          postprocess: substituted_postprocess,
-          variables: json!(var_map),
-        }
-      })
-      .collect()
   }
 }
 

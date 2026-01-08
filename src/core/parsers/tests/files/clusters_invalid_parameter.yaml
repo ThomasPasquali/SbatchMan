@@ -1,0 +1,11 @@
+clusters:
+  # The cluster names will be set during SbatchMan installation
+  clusterA:
+    scheduler: Slurm
+
+    # Values set here will be set on every `clusterA` configuration
+    params:
+      does_not_exist: "{{nodes}}"
+
+    configs:
+      - name: "test"

@@ -99,11 +99,18 @@ impl<'a> CombinationGenerator<'a> {
       return Ok(Some(idx));
     }
 
+    // Get the variable name, without the key part for maps
+    let root_var_name = match segment {
+      VariableSegment::Variable(n) => n.clone(),
+      VariableSegment::ConstantMap { map_name, .. } => map_name.clone(),
+      VariableSegment::VariableMap { map_name, .. } => map_name.clone(),
+    };
+
     // 1. Resolve the variable from the variable map
     let var = self
       .variable_map
-      .get(&name)
-      .ok_or_else(|| ParserError::EvalError(format!("Variable '{}' not found", name)))?;
+      .get(&root_var_name)
+      .ok_or_else(|| ParserError::EvalError(format!("Variable '{}' not found", root_var_name)))?;
 
     // 2. Register based on type of segment and variable
     match segment {
@@ -187,15 +194,21 @@ impl<'a> CombinationGenerator<'a> {
     Ok(CombinationIterator {
       generator: self,
       sorted_nodes,
-      finished: false,
+      state: State::NotStarted,
     })
   }
+}
+
+enum State {
+  NotStarted,
+  InProgress,
+  Finished,
 }
 
 pub(crate) struct CombinationIterator<'a> {
   generator: CombinationGenerator<'a>,
   sorted_nodes: Vec<NodeIndex>,
-  finished: bool,
+  state: State,
 }
 
 impl<'a> CombinationIterator<'a> {
@@ -225,6 +238,7 @@ impl<'a> CombinationIterator<'a> {
   }
 
   /// Helper to resolve a dynamic node's value based on its current index and definition.
+  /// The values of the nodes are computed lazily and cached
   fn resolve_node(&self, idx: NodeIndex) -> Result<Scalar, ParserError> {
     // Check cache (borrow checker workaround: get index first, then compute)
     let s = self.generator.graph.node_weight(idx).unwrap();
@@ -295,24 +309,14 @@ impl<'a> CombinationIterator<'a> {
       DynamicNodeDef::Python(_) => Ok(1),
     }
   }
-}
 
-impl<'a> Iterator for CombinationIterator<'a> {
-  type Item = ();
-
-  // Advance to the next combination. Call .get_segment_value() to retrieve values. Returns None when all combinations have been generated.
-  fn next(&mut self) -> Option<Self::Item> {
-    if self.finished {
-      return None;
-    }
-
-    // Advance Logic (Odometer)
-    // Iterate independent vars first by reversing the topological order.
+  /// Helper to advance the iterator state. Returns None if all combinations have been generated.
+  fn advance_iterator(&mut self) -> Option<()> {
     let mut advanced = false;
 
     for i in (0..self.sorted_nodes.len()).rev() {
       let idx = self.sorted_nodes[i];
-      let len = self.get_node_len(idx).ok()?; // If error, stop iteration (simplification)
+      let len = self.get_node_len(idx).ok()?;
       let node = self.generator.graph.node_weight_mut(idx).unwrap();
       let state = &mut node.state;
 
@@ -324,17 +328,11 @@ impl<'a> Iterator for CombinationIterator<'a> {
         let mut to_clear = VecDeque::new();
         to_clear.push_back(idx);
         while let Some(current) = to_clear.pop_front() {
-          // I retrieve the node again to satisfy the borrow checker, otherwise it complains about multiple mutable borrows on the graph.
           // Invalidate cache
           if let Some(s) = self.generator.graph.node_weight_mut(current) {
             s.state.cached_value = None;
           }
-          // Compute new value
-          let new_value = self.resolve_node(current).ok()?;
-          // Update cache
-          if let Some(s) = self.generator.graph.node_weight_mut(current) {
-            s.state.cached_value = Some(new_value);
-          }
+          // Enqueue dependents
           for neighbor in self
             .generator
             .graph
@@ -351,10 +349,28 @@ impl<'a> Iterator for CombinationIterator<'a> {
     }
 
     if !advanced {
-      self.finished = true;
+      self.state = State::Finished;
       return None;
     }
 
     Some(())
+  }
+}
+
+impl<'a> Iterator for CombinationIterator<'a> {
+  type Item = ();
+
+  /// Advance to the next combination. Call .get_segment_value() to retrieve values. Returns None when all combinations have been generated.
+  /// The case where there are no combinations is not handled, as we assume at least one combination exists (this would only in the case of an empty list).
+  fn next(&mut self) -> Option<Self::Item> {
+    match self.state {
+      State::Finished => return None,
+      State::NotStarted => {
+        // Return early on the first iteration, as the indices are already at 0
+        self.state = State::InProgress;
+        return Some(());
+      }
+      State::InProgress => self.advance_iterator(),
+    }
   }
 }

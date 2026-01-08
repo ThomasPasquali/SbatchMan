@@ -1,12 +1,13 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::core::parsers::multi_hashmap::MultiHashMap;
 use crate::core::parsers::ParserError;
-use crate::core::parsers::yaml_parser::{load_yaml_from_file, yaml_lookup};
+use crate::core::parsers::yaml_parser::{check_mapping_keys, load_yaml_from_file, yaml_lookup};
 use crate::core::parsers::variable_parser::{CompleteVar, parse_variables};
 use log::debug;
+use saphyr::YamlOwned;
 
 /// Push a file to the include list.
 /// Can handle both absolute and relative paths. Relative paths are resolved relative to the provided file path.
@@ -52,14 +53,21 @@ fn push_file_to_include_list(
 /// vars3.yaml (lowest priority)
 /// An error is raised if a file is included multiple times (to prevent circular includes).
 pub fn parse_include_variables<'a>(
+  yaml: &YamlOwned,
   root: &Path,
   variables: &mut MultiHashMap<String, CompleteVar>,
 ) -> Result<(), ParserError> {
   // Keep track of included files to prevent circular includes
   let mut included_files = vec![];
   // Start with the initial file
-  let mut to_include = VecDeque::from([fs::canonicalize(root)?]);
+  let mut to_include = VecDeque::new();
   // Final variables collection
+  let mut variables_temp = HashMap::new();
+
+  // Parse variables from the root file
+  parse_variables(&yaml, &mut variables_temp)?;
+  enqueue_included_files(&yaml, root, &mut included_files, &mut to_include)?;
+  included_files.push(fs::canonicalize(root)?);
 
   // Process the include queue. Variables from this file are processed first. Then, variables from included files are processed, but do not override variables that have been already inserted.
   while let Some(current_path) = to_include.pop_front() {
@@ -67,28 +75,45 @@ pub fn parse_include_variables<'a>(
 
     let yaml = load_yaml_from_file(&current_path)?;
 
-    // Parse variables from the current file and add them to the multi-hashmap
-    parse_variables(&yaml, variables)?;
+    let required_keys = vec![];
+    let optional_keys = vec!["variables", "include"];
+    check_mapping_keys(&yaml, &required_keys, &optional_keys)?;
 
-    if let Some(node) = yaml_lookup(&yaml, "include") {
-      if let Some(file) = node.as_str() {
-        // Single include
-        push_file_to_include_list(&file, &current_path, &mut included_files, &mut to_include)?;
-      } else if let Some(include_sequence) = node.as_sequence() {
-        // Multiple includes. Push from last to first, so that last will be processed first
-        for it in include_sequence.iter().rev() {
-          if let Some(file) = it.as_str() {
-            push_file_to_include_list(file, &current_path, &mut included_files, &mut to_include)?;
-          } else {
-            return Err(ParserError::IncludeWrongType(format!("{:?}", it)));
-          }
-        }
-      } else {
-        return Err(ParserError::IncludeWrongType(format!("{:?}", node)));
-      }
-    }
+    // Parse variables from the current file
+    parse_variables(&yaml, &mut variables_temp)?;
+
+    enqueue_included_files(&yaml, &current_path, &mut included_files, &mut to_include)?;
+
     included_files.push(fs::canonicalize(current_path)?);
   }
 
+  variables.push(variables_temp);
+
+  Ok(())
+}
+
+fn enqueue_included_files(
+  yaml: &YamlOwned,
+  file_path: &Path,
+  included_files: &mut Vec<PathBuf>,
+  to_include: &mut VecDeque<PathBuf>,
+) -> Result<(), ParserError> {
+  if let Some(node) = yaml_lookup(yaml, "include") {
+    if let Some(file) = node.as_str() {
+      // Single include
+      push_file_to_include_list(file, file_path, included_files, to_include)?;
+    } else if let Some(include_sequence) = node.as_sequence() {
+      // Multiple includes. Push from last to first, so that last will be processed first
+      for it in include_sequence.iter().rev() {
+        if let Some(file) = it.as_str() {
+          push_file_to_include_list(file, file_path, included_files, to_include)?;
+        } else {
+          return Err(ParserError::IncludeWrongType(format!("{:?}", it)));
+        }
+      }
+    } else {
+      return Err(ParserError::IncludeWrongType(format!("{:?}", node)));
+    }
+  }
   Ok(())
 }

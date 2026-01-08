@@ -244,7 +244,7 @@ When defining jobs, the following special variables are also available:
 
 These work the same way as other variables. It is not possible to redefine these special variables.
 
-**Note: variable names are case-insensitive.**
+Variable names are case-insensitive. Common variables can be defined in separate files and included in both the clusters and jobs configuration files using the `include` directive.
 
 #### Substitutions
 Variables can be referenced in the following fields:
@@ -256,9 +256,7 @@ To reference a variable, use the `{{ var }}` notation. To reference a value insi
 
 The same notation is used in `python` blocks to reference variables.
 
-Technical limitations:
-  * Nested substitutions are not supported. For example, `{{ var1_{{var2}} }}` is not allowed.
-  * Lists, standard maps and cluster maps cannot reference other variables inside their definitions.
+Note that variables cannot be referenced inside other variable definitions.
 
 ### Example: Cluster Configuration (`clusters_configs.yaml`)
 
@@ -267,7 +265,6 @@ Technical limitations:
 
 variables:
   interconnect:
-    default: ["ethernet"]
     per_cluster:
       clusterA: ["ethernet_A", "infiniband_A"]
       clusterB: ["ethernet_B"]

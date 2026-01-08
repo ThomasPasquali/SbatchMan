@@ -4,10 +4,10 @@ include: recursive_vars.yaml
 
 variables:
   # Directory, each file is a value.
-  dataset: !dir datasets/
+  dataset: !dir src/core/parsers/tests/files/datasets
 
   # File, each line is a value.
-  mode: !file modes.txt
+  mode: !file src/core/parsers/tests/files/modes.txt
 
   # Explicit values list. Same as ["impl1", "impl2", "impl3"].
   implementation:
@@ -15,8 +15,7 @@ variables:
     - -5
     - -5.0
 
-  # This is basically a dictionary/map. The default value is optional.
-  # If the default value is not set, accessing undefined keys will result in an error. 
+  # This is basically a dictionary/map.
   args:
     map:
       "impl1": "--arg-for-impl1 --another-for-impl1"
@@ -24,7 +23,6 @@ variables:
 
   # This is a map that uses as key the name of the cluster.
   nodes:
-    default: [1, 2, 4, 8]
     per_cluster:
       clusterA: [1]
       clusterB: [1, 2]
