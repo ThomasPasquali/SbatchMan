@@ -1,0 +1,11 @@
+variables:
+  var1: "value1"
+  list_var: ["A", "B"]
+  map_var:
+    map:
+      "A": "mapped_A"
+      "B": "mapped_B"
+  cluster_var:
+    per_cluster:
+      clusterA: "valA"
+      clusterB: "valB"

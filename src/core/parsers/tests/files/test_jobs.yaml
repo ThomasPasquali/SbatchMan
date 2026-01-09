@@ -1,0 +1,21 @@
+include: test_variables.yaml
+
+variables:
+  job_var: [1, 2]
+
+jobs:
+  - name: "job_{{list_var}}_{{job_var}}"
+    cluster_config: "config_{{cluster_var}}"
+    command: "cmd {{map_var[list_var]}} {{job_var}} {{cluster_var}}"
+    preprocess: "pre {{var1}}"
+    postprocess: "post"
+
+  - name: "variant_{{sub_var}}"
+    cluster_config: "default"
+    variables:
+      sub_var: ["x", "y"]
+    variants:
+      - name: "v1_{{sub_var}}"
+        command: "echo {{sub_var}}"
+      - name: "v2"
+        command: "echo v2"

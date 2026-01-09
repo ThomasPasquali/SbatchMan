@@ -8,26 +8,34 @@ use crate::core::parsers::{ParserError, combination_generator::CombinationGenera
 
 pub struct ParsedJob {
   pub job_name: String,
-  pub variant_name: Option<String>,
   pub config_name: String,
   pub command: String,
   pub preprocess: Option<String>,
   pub postprocess: Option<String>,
 }
 
-fn parse_job_config(yaml: &YamlOwned, config: &mut HashMap<String, Template>) -> Result<(), ParserError> {
+fn parse_job_config(yaml: &YamlOwned, config: &mut MultiHashMap<String, Template>) -> Result<(), ParserError> {
+  let mut config_map = HashMap::new();
+  if let Ok(value) = lookup_str(yaml, "name") {
+    config_map.insert("name".to_string(), Template::from_str(&value)?);
+  }
+  if let Ok(value) = lookup_str(yaml, "cluster_config") {
+    config_map.insert("cluster_config".to_string(), Template::from_str(&value)?);
+  }
   if let Ok(value) = lookup_str(yaml, "command") {
-    config.insert("command".to_string(), Template::from_str(&value)?);
+    config_map.insert("command".to_string(), Template::from_str(&value)?);
   }
   if let Ok(value) = lookup_str(yaml, "preprocess") {
-    config.insert("preprocess".to_string(), Template::from_str(&value)?);
+    config_map.insert("preprocess".to_string(), Template::from_str(&value)?);
   }
   if let Ok(value) = lookup_str(yaml, "postprocess") {
-    config.insert("postprocess".to_string(), Template::from_str(&value)?);
+    config_map.insert("postprocess".to_string(), Template::from_str(&value)?);
   }
   if let Ok(value) = lookup_str(yaml, "command") {
-    config.insert("command".to_string(), Template::from_str(&value)?);
+    config_map.insert("command".to_string(), Template::from_str(&value)?);
   }
+
+  config.push(config_map);
 
   Ok(())
 }
@@ -46,7 +54,6 @@ fn generate_jobs(variables: &MultiHashMap<String, CompleteVar>, config: &MultiHa
       job_name: config.get("name")
         .ok_or(ParserError::MissingKey("name".to_string()))?
         .render(&combinations)?,
-      variant_name: config.get("variant_name").map(|t| t.render(&combinations)).transpose()?,
       config_name: config.get("cluster_config")
         .ok_or(ParserError::MissingKey("cluster_config".to_string()))?
         .render(&combinations)?,
@@ -69,11 +76,7 @@ fn parse_variant(yaml: &YamlOwned, variables: &mut MultiHashMap<String, Complete
 
   parse_variables(yaml, variables, path)?;
 
-  let mut variant_config = HashMap::new();
-  parse_job_config(yaml, &mut variant_config)?;
-  let variant_name = lookup_str(yaml, "name")?;
-  variant_config.insert("variant_name".to_string(), Template::from_str(&variant_name)?);
-  config.push(variant_config);
+  parse_job_config(yaml, config)?;
 
   let jobs = generate_jobs(variables, config, cluster_name)?;
 
@@ -96,14 +99,7 @@ fn parse_job(
 
   parse_variables(yaml, variables, path)?;
 
-  let mut job_config = HashMap::new();
-  parse_job_config(yaml, &mut job_config)?;
-
-  let job_name = lookup_str(yaml, "name")?;
-  job_config.insert("variant_name".to_string(), Template::from_str(&job_name)?);
-  let cluster_config = lookup_str(yaml, "cluster_config")?;
-  job_config.insert("cluster_config".to_string(), Template::from_str(&cluster_config)?);
-  config.push(job_config);
+  parse_job_config(yaml, config)?;
 
   let mut jobs = vec![];
   
@@ -132,9 +128,7 @@ pub fn parse_jobs_from_file(root: &PathBuf, cluster_name: &str) -> Result<Vec<Pa
   parse_include_variables(&yaml, root, &mut variables)?;
 
   let mut config = MultiHashMap::new();
-  let mut global_config = HashMap::new();
-  parse_job_config(&yaml, &mut global_config)?;
-  config.push(global_config);
+  parse_job_config(&yaml, &mut config)?;
 
   let mut parsed_jobs = vec![];
   for job_yaml in lookup_sequence(&yaml, "jobs")? {
