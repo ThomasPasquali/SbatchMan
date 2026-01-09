@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::path::{Path};
 
+use crate::core::parsers::multi_hashmap::MultiHashMap;
 use crate::core::parsers::template_parser::Template;
 use crate::core::parsers::yaml_parser::{lookup_mapping, value_from_str};
 use crate::core::parsers::{ParserError, yaml_parser::to_string};
@@ -147,22 +149,25 @@ fn parse_scalar(s: &YamlOwnedScalar) -> Result<Scalar, ParserError> {
 
 /// Handles only tags that produce BasicVar variants (i.e., not PythonVar).
 /// TODO: is working directory correct?
-fn parse_tagged_basic_var(tag: &Tag, s: &YamlOwned) -> Result<BasicVar, ParserError> {
+fn parse_tagged_basic_var(tag: &Tag, s: &YamlOwned, path: &Path) -> Result<BasicVar, ParserError> {
+  // Get parent directory of the current file for relative paths
+  let base_path = path.parent().ok_or(ParserError::EvalError("Invalid file path".to_string()))?;
+  
   match tag.suffix.as_str() {
     "file" => {
-      let path = to_string(s)?;
+      let path = base_path.join(to_string(s)?);
       let content = std::fs::read_to_string(&path)
-        .map_err(|e| ParserError::FileReadError(path.to_string(), e.to_string()))?
+        .map_err(|e| ParserError::FileReadError(path.to_string_lossy().to_string(), e.to_string()))?
         .lines()
         .map(|line| Scalar::String(line.to_string()))
         .collect();
       Ok(ListVar { items: content }.into())
     }
     "dir" => {
-      let path = to_string(s)?;
+      let path = base_path.join(to_string(s)?);
       let mut file_list: Vec<Scalar> = Vec::new();
       let entries = std::fs::read_dir(&path)
-        .map_err(|e| ParserError::FileReadError(path.to_string(), e.to_string()))?
+        .map_err(|e| ParserError::FileReadError(path.to_string_lossy().to_string(), e.to_string()))?
         .map(|res| res.map(|e| e.path()))
         .collect::<Result<Vec<std::path::PathBuf>, std::io::Error>>()?;
 
@@ -180,14 +185,14 @@ fn parse_tagged_basic_var(tag: &Tag, s: &YamlOwned) -> Result<BasicVar, ParserEr
 }
 
 /// Parse a tagged YAML node into a CompleteVar enum.
-fn parse_tagged(tag: &Tag, s: &YamlOwned) -> Result<CompleteVar, ParserError> {
+fn parse_tagged(tag: &Tag, s: &YamlOwned, path: &Path) -> Result<CompleteVar, ParserError> {
   match tag.suffix.as_str() {
     "python" => {
       let code = to_string(s)?;
       let template = Template::from_str(&code)?;
       Ok(PythonVar { template }.into())
     }
-    _ => parse_tagged_basic_var(tag, s).map(CompleteVar::BasicVar),
+    _ => parse_tagged_basic_var(tag, s, path).map(CompleteVar::BasicVar),
   }
 }
 
@@ -213,22 +218,23 @@ fn parse_sequence_of_scalars(seq: &Vec<YamlOwned>) -> Result<Vec<Scalar>, Parser
 /// Parse a mapping of `BasicVar`s into HashMap<String, BasicVar>
 fn parse_map_of_basic_vars(
   map: &LinkedHashMap<YamlOwned, YamlOwned>,
+  path: &Path,
 ) -> Result<HashMap<String, BasicVar>, ParserError> {
   let mut result: HashMap<String, BasicVar> = HashMap::new();
 
   for (k, v) in map.iter() {
     let key_str = k.as_str().ok_or(wrong_type_err!(k, "string"))?;
-    result.insert(key_str.to_string(), parse_basic_var(v)?);
+    result.insert(key_str.to_string(), parse_basic_var(v, path)?);
   }
 
   Ok(result)
 }
 
 /// Parse only basic variable (scalar or list). Return error if anything else.
-fn parse_basic_var(yaml: &YamlOwned) -> Result<BasicVar, ParserError> {
+fn parse_basic_var(yaml: &YamlOwned, path: &Path) -> Result<BasicVar, ParserError> {
   match yaml {
     YamlOwned::Value(s) => Ok(BasicVar::Scalar(parse_scalar(s)?)),
-    YamlOwned::Tagged(tag, s) => parse_tagged_basic_var(tag, s),
+    YamlOwned::Tagged(tag, s) => parse_tagged_basic_var(tag, s, path),
     YamlOwned::Sequence(seq) => Ok(
       ListVar {
         items: parse_sequence_of_scalars(seq)?,
@@ -248,10 +254,11 @@ macro_rules! yaml_str {
   };
 }
 
-/// Parses all types of variables from a YAML node and inserts them into the provided variables HashMap. Elements already present in the HashMap are not overridden (this feature is used when parsing multi-file includes).
-pub fn parse_variables(
+/// Parse variables from a YAML node with a `variables:` entry and insert them into the provided hashmap. Elements already present in the hashmap are not overridden (this feature is used when parsing multi-file includes).
+pub fn parse_variables_hashmap(
   yaml: &YamlOwned,
   variables: &mut HashMap<String, CompleteVar>,
+  path: &Path,
 ) -> Result<(), ParserError> {
   if let Ok(yaml) = lookup_mapping(yaml, "variables") {
     // Ensure the top-level YAML is a mapping
@@ -261,7 +268,7 @@ pub fn parse_variables(
         YamlOwned::Value(s) => {
           parse_scalar(s).map(|x| CompleteVar::BasicVar(BasicVar::Scalar(x)))?
         }
-        YamlOwned::Tagged(tag, s) => parse_tagged(tag, s)?,
+        YamlOwned::Tagged(tag, s) => parse_tagged(tag, s, path)?,
         YamlOwned::Sequence(seq) => {
           parse_sequence_of_scalars(seq).map(|x| ListVar { items: x }.into())?
         }
@@ -274,6 +281,7 @@ pub fn parse_variables(
                 cluster_map
                   .as_mapping()
                   .ok_or(wrong_type_err!(map, "map"))?,
+              path,
               )?,
               kind: MapKind::Cluster,
             }
@@ -281,7 +289,7 @@ pub fn parse_variables(
           } else if let Some(map) = map.get(&yaml_str!("map")) {
             // Parse as a standard mapping variable
             MapVar {
-              map: parse_map_of_basic_vars(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?)?,
+              map: parse_map_of_basic_vars(map.as_mapping().ok_or(wrong_type_err!(map, "map"))?, path)?,
               kind: MapKind::Standard,
             }
             .into()
@@ -301,5 +309,17 @@ pub fn parse_variables(
     }
   }
 
+  Ok(())
+}
+
+/// Parse variables from a YAML node with a `variables:` entry and insert them into the provided MultiHashMap.
+pub fn parse_variables(
+  config: &YamlOwned,
+  variables: &mut MultiHashMap<String, CompleteVar>,
+  path: &Path,
+) -> Result<(), ParserError> {
+  let mut temp_variables = HashMap::new();
+  parse_variables_hashmap(config, &mut temp_variables, path)?;
+  variables.push(temp_variables);
   Ok(())
 }

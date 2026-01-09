@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::core::parsers::multi_hashmap::MultiHashMap;
 use crate::core::parsers::ParserError;
 use crate::core::parsers::yaml_parser::{check_mapping_keys, load_yaml_from_file, yaml_lookup};
-use crate::core::parsers::variable_parser::{CompleteVar, parse_variables};
+use crate::core::parsers::variable_parser::{CompleteVar, parse_variables_hashmap};
 use log::debug;
 use saphyr::YamlOwned;
 
@@ -65,7 +65,7 @@ pub fn parse_include_variables<'a>(
   let mut variables_temp = HashMap::new();
 
   // Parse variables from the root file
-  parse_variables(&yaml, &mut variables_temp)?;
+  parse_variables_hashmap(&yaml, &mut variables_temp, root)?;
   enqueue_included_files(&yaml, root, &mut included_files, &mut to_include)?;
   included_files.push(fs::canonicalize(root)?);
 
@@ -80,7 +80,7 @@ pub fn parse_include_variables<'a>(
     check_mapping_keys(&yaml, &required_keys, &optional_keys)?;
 
     // Parse variables from the current file
-    parse_variables(&yaml, &mut variables_temp)?;
+    parse_variables_hashmap(&yaml, &mut variables_temp, &current_path)?;
 
     enqueue_included_files(&yaml, &current_path, &mut included_files, &mut to_include)?;
 

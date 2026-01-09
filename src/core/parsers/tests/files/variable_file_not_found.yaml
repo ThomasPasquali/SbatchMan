@@ -1,2 +1,2 @@
 variables:
-  file_not_found: !file src/core/parsers/tests/files/non_existent_file.txt
+  file_not_found: !file non_existent_file.txt

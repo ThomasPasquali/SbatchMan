@@ -3,7 +3,6 @@ mod pbs;
 mod slurm;
 mod utils;
 mod r#virtual;
-use std::collections::HashMap;
 use std::io::Write;
 use std::{
   fs,
@@ -14,10 +13,11 @@ use std::{
 mod tests;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Value};
 use thiserror::Error;
 
 use crate::core::jobs::utils::{escape_for_printf, get_timestamp_string};
+use crate::core::parsers::parse_jobs_from_file;
 use crate::core::{
   cluster_configs::ClusterConfig,
   database::{
@@ -254,7 +254,7 @@ pub fn launch_jobs_from_file(
   db: &mut Database,
   cluster_name: &str,
 ) -> Result<(), JobError> {
-  let jobs = crate::core::parsers::parse_jobs_from_file(path)?;
+  let jobs = parse_jobs_from_file(path, cluster_name)?;
   let cluster = db.get_cluster_by_name(cluster_name)?;
   let configs = db.get_configs_by_cluster(&cluster)?;
   let mut to_launch_really = jobs.len();
@@ -271,7 +271,7 @@ pub fn launch_jobs_from_file(
   while to_launch_really > 0 {
     let job = iter.next().unwrap();
     let config = configs
-      .get(job.config_name)
+      .get(&job.config_name)
       .ok_or(JobError::ConfigNotFound(job.config_name.to_string()))?;
     launch_job(job, config, &cluster, db, path, false)?;
     to_launch_really -= 1;
@@ -279,7 +279,7 @@ pub fn launch_jobs_from_file(
   // Remaining jobs go to virtual queue
   while let Some(job) = iter.next() {
     let config = configs
-      .get(job.config_name)
+      .get(&job.config_name)
       .ok_or(JobError::ConfigNotFound(job.config_name.to_string()))?;
     launch_job(job, config, &cluster, db, path, true)?;
   }
@@ -296,11 +296,10 @@ pub(super) fn launch_job(
   virtual_queue: bool,
 ) -> Result<(), JobError> {
   let new_job = NewJob {
-    job_name: job.job_name,
-    command: job.command,
-    preprocess: job.preprocess,
-    postprocess: job.postprocess,
-    variables: job.variables,
+    job_name: &job.job_name,
+    command: &job.command,
+    preprocess: job.preprocess.as_deref(),
+    postprocess: job.postprocess.as_deref(),
     config_id: config.id,
     status: &Status::Created,
     directory: "",

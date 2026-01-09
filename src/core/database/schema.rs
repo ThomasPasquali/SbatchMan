@@ -33,7 +33,6 @@ diesel::table! {
         preprocess -> Nullable<Text>,
         postprocess -> Nullable<Text>,
         archived -> Nullable<Integer>,
-        variables -> Json,
     }
 }
 

@@ -5,6 +5,3 @@
 -        env -> Text,
 +        flags -> Json,
 +        env -> Json,
-@@ -36 +36 @@
--        variables -> Text,
-+        variables -> Json,

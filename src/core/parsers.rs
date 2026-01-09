@@ -57,4 +57,6 @@ pub enum ParserError {
   InvalidKey(String, String),
   #[error("Empty list is not allowed for variable definitions")]
   EmptyList,
+  #[error("Duplicate config name found: {0}")]
+  DuplicateConfigName(String),
 }

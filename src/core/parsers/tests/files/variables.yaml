@@ -4,10 +4,10 @@ include: recursive_vars.yaml
 
 variables:
   # Directory, each file is a value.
-  dataset: !dir src/core/parsers/tests/files/datasets
+  dataset: !dir datasets
 
   # File, each line is a value.
-  mode: !file src/core/parsers/tests/files/modes.txt
+  mode: !file modes.txt
 
   # Explicit values list. Same as ["impl1", "impl2", "impl3"].
   implementation:

@@ -25,7 +25,6 @@ fn create_test_job(id: i32, directory: &str) -> Job {
     preprocess: None,
     postprocess: None,
     archived: None,
-    variables: json!({}),
   }
 }
 
@@ -444,7 +443,6 @@ fn test_log_allows_database_reconstruction() {
   let temp_dir = TempDir::new().unwrap();
   let job_dir = temp_dir.path().join("reconstruction_test");
   let mut job = create_test_job(99, job_dir.to_str().unwrap());
-  job.variables = json!({"experiment": "test", "seed": 42});
   let mut config = create_test_config(5);
   config.flags = json!({"gpu": true});
   config.env = json!({"PYTHONPATH": "/opt/python"});

@@ -161,7 +161,6 @@ pub struct Job {
   pub postprocess: Option<String>,
   // pub exit_code: Option<i32>,
   pub archived: Option<i32>,
-  pub variables: serde_json::Value,
 }
 
 #[derive(Insertable)]
@@ -174,5 +173,4 @@ pub struct NewJob<'a> {
   pub status: &'a Status,
   pub preprocess: Option<&'a str>,
   pub postprocess: Option<&'a str>,
-  pub variables: &'a serde_json::Value,
 }

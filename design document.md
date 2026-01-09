@@ -232,8 +232,8 @@ Variables can be used for generating multiple cluster configurations and job var
   * Standard maps: key-value pairs, where the value can be referenced using the key. Values must be scalars.
   * Cluster maps: key-value pairs. The value corresponding to the current cluster is used. Values must be scalars.
   * Special types:
-    * `!dir <path>`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
-    * `!file <path>`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the directory where `sbatchman` was invoked.
+    * `!dir <path>`: A special directive that expands to a list of file names within the specified path. If the path is relative, it is considered relative to the location of the file.
+    * `!file <path>`: A special directive that expands to a list of lines read from the specified file. If the path is relative, it is considered relative to the location of the file.
     * `!python <expression>`: A special directive that evaluates a Python expression. The expression can reference other variables using the `{{ var }}` notation. The expression must return a simple type.
 
 When defining jobs, the following special variables are also available:
