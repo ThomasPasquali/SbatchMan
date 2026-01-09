@@ -39,21 +39,22 @@ fn generate_jobs(variables: &MultiHashMap<String, CompleteVar>, config: &MultiHa
   }
 
   let mut jobs = vec![];
+  let mut combinations = generator.try_iter()?;
 
-  for combination in generator.try_iter() {
+  while combinations.next().is_some() {
     let job = ParsedJob {
       job_name: config.get("name")
         .ok_or(ParserError::MissingKey("name".to_string()))?
-        .render(&combination)?,
-      variant_name: config.get("variant_name").map(|t| t.render(&combination)).transpose()?,
+        .render(&combinations)?,
+      variant_name: config.get("variant_name").map(|t| t.render(&combinations)).transpose()?,
       config_name: config.get("cluster_config")
         .ok_or(ParserError::MissingKey("cluster_config".to_string()))?
-        .render(&combination)?,
+        .render(&combinations)?,
       command: config.get("command")
         .ok_or(ParserError::MissingKey("command".to_string()))?
-        .render(&combination)?,
-      preprocess: config.get("preprocess").map(|t| t.render(&combination)).transpose()?,
-      postprocess: config.get("postprocess").map(|t| t.render(&combination)).transpose()?,
+        .render(&combinations)?,
+      preprocess: config.get("preprocess").map(|t| t.render(&combinations)).transpose()?,
+      postprocess: config.get("postprocess").map(|t| t.render(&combinations)).transpose()?,
     };
     jobs.push(job);
   }

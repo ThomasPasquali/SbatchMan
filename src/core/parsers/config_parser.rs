@@ -122,14 +122,14 @@ fn parse_config(
   }
 
   let mut combinations = generator.try_iter()?;
-  let mut flags: HashMap<String, String> = HashMap::new();
-  let mut env: HashMap<String, String> = HashMap::new();
-  let mut config_names: HashSet<String> = HashSet::new();
   let mut configs = vec![];
-
+  let mut config_names: HashSet<String> = HashSet::new();
+  
   while combinations.next().is_some() {
     // Inefficient as we re-evaluate all templates for each combination.
     // Since the generator already knows which variables changed, we could optimize this by re-evaluating only the affected templates.
+    let mut flags: HashMap<String, String> = HashMap::new();
+    let mut env: HashMap<String, String> = HashMap::new();
     for (name, template) in config_entries.iter() {
       flags.insert(name.clone(), template.render(&combinations)?);
     }
