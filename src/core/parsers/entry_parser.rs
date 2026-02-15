@@ -1,12 +1,11 @@
-use crate::core::parsers::{ParserError, combination_generator::CombinationIterator};
+/// entry_parser.rs
+/// Parses configuration entry strings into a structured format to identify the variables used.
+/// Strings are parsed against the following syntax:
+/// - `{{ var }}`: Standard variable substitution
+/// - `{{ map["key"] }}`: Constant map lookup
+/// - `{{ map[key] }}` or {{ map.key }}: Dynamic map lookup using another variable as key
 
-/**
- * Parses strings with variable substitutions into a structured format.
- * Supported syntax: 
- * - `{{ var }}`: Standard variable substitution
- * - `{{ map["key"] }}`: Constant map lookup
- * - `{{ map[key] }}` or {{ map.key }}: Dynamic map lookup using another variable as key
- */
+use crate::core::parsers::{ParserError, combination_generator::CombinationIterator};
 
 #[derive(Debug)]
 pub enum VariableSegment {
@@ -35,26 +34,26 @@ impl VariableSegment {
 }
 
 #[derive(Debug)]
-pub enum TemplateSegment {
+pub enum EntrySegment {
   Literal(String),
   VariableSegment(VariableSegment),
 }
-impl From<VariableSegment> for TemplateSegment {
+impl From<VariableSegment> for EntrySegment {
   fn from(vs: VariableSegment) -> Self {
-    TemplateSegment::VariableSegment(vs)
+    EntrySegment::VariableSegment(vs)
   }
 }
 
 #[derive(Debug)]
-pub struct Template {
-  pub segments: Vec<TemplateSegment>,
+pub struct ParsedEntry {
+  pub segments: Vec<EntrySegment>,
 }
 
 
-impl Template {
-  pub fn from_str(template_str: &str) -> Result<Self, ParserError> {
-    let mut segments: Vec<TemplateSegment> = Vec::new();
-    let mut remainder = template_str;
+impl ParsedEntry {
+  pub fn from_str(string: &str) -> Result<Self, ParserError> {
+    let mut segments: Vec<EntrySegment> = Vec::new();
+    let mut remainder = string;
 
     while let Some(start) = remainder.find("{{") {
       let end = remainder[start..].find("}}").ok_or_else(|| {
@@ -63,7 +62,7 @@ impl Template {
 
       // Add literal segment before {{
       if start > 0 {
-        segments.push(TemplateSegment::Literal(remainder[..start].to_string()));
+        segments.push(EntrySegment::Literal(remainder[..start].to_string()));
       }
 
       // Extract variable expression and convert to lowercase
@@ -97,10 +96,10 @@ impl Template {
 
     // Add remaining literal segment
     if !remainder.is_empty() {
-      segments.push(TemplateSegment::Literal(remainder.to_string()));
+      segments.push(EntrySegment::Literal(remainder.to_string()));
     }
 
-    Ok(Template { segments })
+    Ok(ParsedEntry { segments })
   }
 
   /// Returns a string with all variable segments replaced by their evaluated values from the current combination.
@@ -108,8 +107,8 @@ impl Template {
     let mut result = String::new();
     for segment in &self.segments {
       match segment {
-        TemplateSegment::Literal(lit) => result.push_str(lit),
-        TemplateSegment::VariableSegment(var_seg) => {
+        EntrySegment::Literal(lit) => result.push_str(lit),
+        EntrySegment::VariableSegment(var_seg) => {
           let value = curr_combination.get_segment_value(var_seg)?;
           result.push_str(&value.to_string());
         }

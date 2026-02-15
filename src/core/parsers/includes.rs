@@ -2,9 +2,9 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::core::parsers::multi_hashmap::MultiHashMap;
+use crate::core::parsers::multi_hashmap::LayeredHashMap;
 use crate::core::parsers::ParserError;
-use crate::core::parsers::yaml_parser::{check_mapping_keys, load_yaml_from_file, yaml_lookup};
+use crate::core::parsers::yaml_parser::{check_invalid_keys, load_yaml_from_file, yaml_lookup};
 use crate::core::parsers::variable_parser::{CompleteVar, parse_variables_hashmap};
 use log::debug;
 use saphyr::YamlOwned;
@@ -55,7 +55,7 @@ fn push_file_to_include_list(
 pub fn parse_include_variables<'a>(
   yaml: &YamlOwned,
   root: &Path,
-  variables: &mut MultiHashMap<String, CompleteVar>,
+  variables: &mut LayeredHashMap<String, CompleteVar>,
 ) -> Result<(), ParserError> {
   // Keep track of included files to prevent circular includes
   let mut included_files = vec![];
@@ -77,7 +77,7 @@ pub fn parse_include_variables<'a>(
 
     let required_keys = vec![];
     let optional_keys = vec!["variables", "include"];
-    check_mapping_keys(&yaml, &required_keys, &optional_keys)?;
+    check_invalid_keys(&yaml, &required_keys, &optional_keys)?;
 
     // Parse variables from the current file
     parse_variables_hashmap(&yaml, &mut variables_temp, &current_path)?;

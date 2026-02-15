@@ -1,5 +1,5 @@
 use crate::core::parsers::{
-  ParserError, includes::parse_include_variables, multi_hashmap::MultiHashMap, tests::get_test_path, variable_parser::{BasicVar, CompleteVar, MapKind, Scalar}, yaml_parser::load_yaml_from_file
+  ParserError, includes::parse_include_variables, multi_hashmap::LayeredHashMap, tests::get_test_path, variable_parser::{BasicVar, CompleteVar, MapKind, Scalar}, yaml_parser::load_yaml_from_file
 };
 
 macro_rules! assert_scalar_string {
@@ -43,10 +43,10 @@ macro_rules! assert_list_len {
 
 fn load_yaml_and_include_variables(
   file_name: &str,
-) -> Result<MultiHashMap<String, CompleteVar>, ParserError> {
+) -> Result<LayeredHashMap<String, CompleteVar>, ParserError> {
   let path = get_test_path(file_name);
   let yaml = load_yaml_from_file(&path)?;
-  let mut variables = MultiHashMap::new();
+  let mut variables = LayeredHashMap::new();
   parse_include_variables(&yaml, &path, &mut variables)?;
   Ok(variables)
 }

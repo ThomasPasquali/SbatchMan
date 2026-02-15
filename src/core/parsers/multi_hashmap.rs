@@ -5,39 +5,42 @@ use std::hash::Hash;
 use std::iter::Rev;
 use std::slice::Iter as SliceIter;
 
-/// A collection of hashmaps. Used to store multiple layers of key-value pairs,
-/// where maps added later override earlier ones.
-/// (ex. default variables, cluster variables, job variables).
-pub struct MultiHashMap<K, V> {
+/// A collection of hashmaps. Used to store multiple layers of key-value pairs.
+/// When the same key is present in multiple layers, the accessor methods return the value found in the map that was added last.
+/// This map can be used to store hierarchical configurations or variables. For example, it is used to 
+/// store the hierarchy of parsed variables: default variables, cluster variables and job variables.
+pub struct LayeredHashMap<K, V> {
   // Vector of hashmaps to search through. The later maps are searched first.
-  maps: Vec<HashMap<K, V>>,
+  layers: Vec<HashMap<K, V>>,
 }
 
-impl<K, V> MultiHashMap<K, V>
+impl<K, V> LayeredHashMap<K, V>
 where
   K: Eq + Hash,
 {
   /// Creates a new MultiHashMap with the given vector of hashmaps.
   pub fn new() -> Self {
-    Self { maps: Vec::new() }
+    Self { layers: Vec::new() }
   }
 
-  /// Adds a new hashmap to the collection. This map will have the highest priority.
+  /// Adds a new hashmap to the collection in O(1). The keys found in this map will the ones that will be returned, until a new hashmap is added.
   pub fn push(&mut self, map: HashMap<K, V>) {
-    self.maps.push(map);
+    self.layers.push(map);
   }
 
+  /// Removed the hashmap on the top layer in O(1)
   pub fn pop(&mut self) -> Option<HashMap<K, V>> {
-    self.maps.pop()
+    self.layers.pop()
   }
 
+  /// Retrieves the value associated with the given key, searching from the layer added last to the lowest. Worst-case complexity is O(n), where n is the number of layers.
   pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
   where
     K: Borrow<Q>,
     Q: Hash + Eq,
   {
     // Search through the maps in reverse order to respect priority
-    for map in self.maps.iter().rev() {
+    for map in self.layers.iter().rev() {
       if let Some(value) = map.get(key) {
         return Some(value);
       }
@@ -45,9 +48,10 @@ where
     None
   }
 
+  /// Returns an iterator over the elements in the layered hashmap. The iterator yields each key-value pair only once, starting from the ones contained in the top layer hashmap.
   pub fn iter(&self) -> MultiHashMapIter<'_, K, V> {
     MultiHashMapIter {
-      maps_iter: self.maps.iter().rev(),
+      maps_iter: self.layers.iter().rev(),
       current_map_iter: None,
       visited_keys: HashSet::new(),
     }
@@ -99,7 +103,9 @@ where
   }
 }
 
-impl<K, V> std::fmt::Display for MultiHashMap<K, V>
+/// Formatter for the LayeredHashMap. Elements are sorted by key and printed as follows:
+/// {key1: value1, key2: value2, ...}
+impl<K, V> std::fmt::Display for LayeredHashMap<K, V>
 where
   K: Eq + Hash + Ord + std::fmt::Debug,
   V: std::fmt::Debug,

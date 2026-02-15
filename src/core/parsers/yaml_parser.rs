@@ -107,7 +107,7 @@ pub fn load_yaml_from_file(path: &Path) -> Result<YamlOwned, ParserError> {
 }
 
 /// Check that all keys in the mapping are among the valid keys. Returns an error if an invalid key is found.
-pub fn check_mapping_keys(
+pub fn check_invalid_keys(
   mapping: &YamlOwned,
   required_keys: &[&str],
   optional_keys: &[&str],

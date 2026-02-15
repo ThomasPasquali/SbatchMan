@@ -1,3 +1,17 @@
+/// # parsers.rs
+/// This module includes all the components needed to parse the cluster configuration file and the jobs configuration file.
+/// ## Cluster configuration file
+/// The cluster configuration file is used to specify describe the configurations of each cluster the user wants to add to Sbatchman. The functions to parse this file are included in the `config_parser` module. The main function to parse the cluster configuration file is `config_parser::parse_clusters_configs_from_file`.
+/// Example of a cluster configuration file:
+/// #![doc = include_str!("parsers/tests/files/clusters_configs.yaml")]
+/// The main function to parse the cluster configuration file is `parse_clusters_configs_from_file`.
+/// 
+/// ## Job configuration file
+/// The job configuration file is used to specify describe the configurations of each job the user wants to execute using Sbatchman. The functions to parse this file are included in the `job_parser` module. The main function to parse the job configuration file is `job_parser::parse_jobs_from_file`.
+/// Example of a job configuration file:
+/// #![doc = include_str!("parsers/tests/files/jobs_configs.yaml")]
+/// The main function to parse the job configuration file is `parse_jobs_from_file`.
+
 mod config_parser;
 mod includes;
 mod job_parser;
@@ -5,7 +19,7 @@ mod yaml_parser;
 mod combination_generator;
 mod variable_parser;
 mod multi_hashmap;
-mod template_parser;
+mod entry_parser;
 
 #[cfg(test)]
 mod tests;

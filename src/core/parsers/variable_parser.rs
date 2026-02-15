@@ -1,8 +1,13 @@
+/// variable_parser.rs
+/// Parses YAML objects that represent variables into variable structures.
+/// Provides parse_variables or parse_variables_hashmap to parse YAML maps that contain the `variables:` key.
+/// The variables supported by this module are: Scalar (String, 64-bit integer, 64-bit float, bool), lists, maps, cluster maps, python variables
+
 use std::collections::HashMap;
 use std::path::{Path};
 
-use crate::core::parsers::multi_hashmap::MultiHashMap;
-use crate::core::parsers::template_parser::Template;
+use crate::core::parsers::multi_hashmap::LayeredHashMap;
+use crate::core::parsers::entry_parser::ParsedEntry;
 use crate::core::parsers::yaml_parser::{lookup_mapping, value_from_str};
 use crate::core::parsers::{ParserError, yaml_parser::to_string};
 use hashlink::LinkedHashMap;
@@ -81,7 +86,8 @@ impl MapVar {
 
 #[derive(Debug)]
 pub struct PythonVar {
-  pub template: Template,
+  /// The entry containing the code of this python variable.
+  pub code: ParsedEntry,
 }
 
 #[derive(Debug)]
@@ -189,8 +195,8 @@ fn parse_tagged(tag: &Tag, s: &YamlOwned, path: &Path) -> Result<CompleteVar, Pa
   match tag.suffix.as_str() {
     "python" => {
       let code = to_string(s)?;
-      let template = Template::from_str(&code)?;
-      Ok(PythonVar { template }.into())
+      let template = ParsedEntry::from_str(&code)?;
+      Ok(PythonVar { code: template }.into())
     }
     _ => parse_tagged_basic_var(tag, s, path).map(CompleteVar::BasicVar),
   }
@@ -315,7 +321,7 @@ pub fn parse_variables_hashmap(
 /// Parse variables from a YAML node with a `variables:` entry and insert them into the provided MultiHashMap.
 pub fn parse_variables(
   config: &YamlOwned,
-  variables: &mut MultiHashMap<String, CompleteVar>,
+  variables: &mut LayeredHashMap<String, CompleteVar>,
   path: &Path,
 ) -> Result<(), ParserError> {
   let mut temp_variables = HashMap::new();

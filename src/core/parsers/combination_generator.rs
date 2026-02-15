@@ -1,7 +1,10 @@
+/// combination_generator.rs
+/// This module provides a generic combinator generator for the variables used in the configurations.
+/// The set of available variables is passed to the constructor of the CombinationGenerator. Then, the parsed entries can be registered to be used in the combination generation using the `register_parsed_entry` method.
 use crate::core::parsers::{
   ParserError,
-  multi_hashmap::MultiHashMap,
-  template_parser::{Template, TemplateSegment, VariableSegment},
+  entry_parser::{EntrySegment, ParsedEntry, VariableSegment},
+  multi_hashmap::LayeredHashMap,
   variable_parser::{self, BasicVar, CompleteVar, ListVar, MapKind, MapVar, PythonVar, Scalar},
 };
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -10,8 +13,6 @@ use std::{
   collections::{HashMap, VecDeque},
   ffi::CString,
 };
-
-// --- Graph Definitions ---
 
 #[derive(Clone, Debug)]
 enum MapKey {
@@ -30,7 +31,7 @@ enum DynamicNodeDef<'a> {
 /// Represents the RUNTIME STATE of a dynamic node.
 #[derive(Clone, Debug)]
 struct NodeState {
-  /// Current index in the list/map (0 for python/scalars)
+  /// Current index in the list/map (always set to 0 for python/scalars)
   index: usize,
   /// Cached result of the current step to avoid re-computation
   cached_value: Option<Scalar>,
@@ -51,15 +52,15 @@ impl NodeState {
   }
 }
 
-/// The combination generator generates all combinations of variables that are used in the "registered" templates.
-/// Templates can be registered using the `register_template` method.
-/// After registering all templates, call `try_iter` to get an iterator over all combinations.
+/// The combination generator generates all combinations of variables that are used in the registered entries.
+/// Entries can be registered using the `register_parsed_entry` method.
+/// After registering all entries, call `try_iter` to get an iterator over all combinations.
 /// The iterator is a standard Rust iterator, calling `next` will advance to the next combination.
 /// Use `get_segment_value` on the returned object to retrieve the value of a variable segment for the current combination.
 pub(crate) struct CombinationGenerator<'a> {
   /// The complete variable map, used to get variable definitions.
-  variable_map: &'a MultiHashMap<String, CompleteVar>,
-  /// Maps variable name -> Graph Node Index. Used to quickly find variables from their name when evaluating templates.
+  variable_map: &'a LayeredHashMap<String, CompleteVar>,
+  /// Maps variable name -> Graph Node Index. Used to quickly find variables from their name when evaluating entries.
   dynamic_vars: HashMap<String, NodeIndex>,
   /// Dependency Graph. The only nodes in the graph are dynamic variables (lists, maps, python). Scalars do not need to be in the graph, as they never change. Edges represent dependencies (A -> B means B depends on A).
   graph: DiGraph<DynamicNode<'a>, ()>,
@@ -68,7 +69,7 @@ pub(crate) struct CombinationGenerator<'a> {
 }
 
 impl<'a> CombinationGenerator<'a> {
-  pub fn new(variable_map: &'a MultiHashMap<String, CompleteVar>, cluster: &str) -> Self {
+  pub fn new(variable_map: &'a LayeredHashMap<String, CompleteVar>, cluster: &str) -> Self {
     Self {
       variable_map,
       cluster: cluster.to_string(),
@@ -77,10 +78,10 @@ impl<'a> CombinationGenerator<'a> {
     }
   }
 
-  /// Register all variable segments found in the template. Variables must be defined in the variable map, otherwise an error is raised.
-  pub fn register_template(&mut self, template: &Template) -> Result<(), ParserError> {
-    for segment in &template.segments {
-      if let TemplateSegment::VariableSegment(vs) = segment {
+  /// Register all variable segments found in the entries. Variables must be defined in the variable map, otherwise an error is raised.
+  pub fn register_parsed_entry(&mut self, entry: &ParsedEntry) -> Result<(), ParserError> {
+    for segment in &entry.segments {
+      if let EntrySegment::VariableSegment(vs) = segment {
         self.register_segment(vs)?;
       }
     }
@@ -176,9 +177,9 @@ impl<'a> CombinationGenerator<'a> {
     var: &'a PythonVar,
   ) -> Result<NodeIndex, ParserError> {
     let idx = self.add_node(name, DynamicNodeDef::Python(var));
-    // Register variables used in the python template and add dependency edges
-    for seg in &var.template.segments {
-      if let TemplateSegment::VariableSegment(vs) = seg {
+    // Register variables used in the python code and add dependency edges
+    for seg in &var.code.segments {
+      if let EntrySegment::VariableSegment(vs) = seg {
         if let Some(dep_idx) = self.register_segment(vs)? {
           self.graph.add_edge(dep_idx, idx, ());
         }
@@ -188,14 +189,7 @@ impl<'a> CombinationGenerator<'a> {
   }
 
   pub fn try_iter(self) -> Result<CombinationIterator<'a>, ParserError> {
-    let sorted_nodes = petgraph::algo::toposort(&self.graph, None)
-      .map_err(|_| ParserError::CyclicVariableDependency())?;
-
-    Ok(CombinationIterator {
-      generator: self,
-      sorted_nodes,
-      state: State::NotStarted,
-    })
+    CombinationIterator::new(self)
   }
 }
 
@@ -207,11 +201,23 @@ enum State {
 
 pub(crate) struct CombinationIterator<'a> {
   generator: CombinationGenerator<'a>,
-  sorted_nodes: Vec<NodeIndex>,
+  // Vector of nodes sorted in topological order
+  topo_nodes: Vec<NodeIndex>,
   state: State,
 }
 
+/// Generates all combinations of entries registered in the `CombinationGenerator` object given the variables stored in the combination generator.
 impl<'a> CombinationIterator<'a> {
+  pub fn new(generator: CombinationGenerator<'a>) -> Result<Self, ParserError> {
+    let sorted_nodes = petgraph::algo::toposort(&generator.graph, None)
+      .map_err(|_| ParserError::CyclicVariableDependency())?;
+    Ok(Self {
+      generator,
+      topo_nodes: sorted_nodes,
+      state: State::NotStarted,
+    })
+  }
+
   /// Get the value of a variable segment for the current iteration. Call .next() to advance to the next combination.
   pub fn get_segment_value(&self, segment: &VariableSegment) -> Result<Scalar, ParserError> {
     let name = segment.name();
@@ -269,8 +275,8 @@ impl<'a> CombinationIterator<'a> {
         }
       }
       DynamicNodeDef::Python(p) => {
-        // Substitute variables in the python template, run the code and return the result
-        let code = p.template.render(self)?;
+        // Substitute variables in the python code, run the code and return the result
+        let code = p.code.render(self)?;
         let code = CString::new(code)
           .map_err(|e| ParserError::EvalError(format!("Failed to convert code to CStr: {}", e)))?;
         pyo3::Python::attach(|py| {
@@ -289,8 +295,8 @@ impl<'a> CombinationIterator<'a> {
     Ok(value)
   }
 
-  /// Helper to determine how many items a node has in the current context
-  fn get_node_len(&mut self, idx: NodeIndex) -> Result<usize, ParserError> {
+  /// Helper to determine how many variants the node generates.
+  fn get_node_var_len(&mut self, idx: NodeIndex) -> Result<usize, ParserError> {
     let node_def = self.generator.graph[idx].def.clone();
     match node_def {
       DynamicNodeDef::List(l) => Ok(l.len()),
@@ -310,14 +316,19 @@ impl<'a> CombinationIterator<'a> {
     }
   }
 
-  /// Helper to advance the iterator state. Returns None if all combinations have been generated.
+  /// The main function that generates the combinations. The topologically-sorted vector of nodes is iterated in reverse order.
+  /// The algorithm that generates the combinations is similar to a binary ripple counter.
+  /// The least-significant node (i.e. the one at the last position in the vector) is incremented first. The `index` attribute of the node's state is checked to see if all the variants of that node have been generated. If not, increment the index and perform a BFS starting from the changed node to clear the caches of all dependent nodes.
+  /// If yes, reset the index to 0 and carry over to the next node. The same procedure is repeated on the next node.
   fn advance_iterator(&mut self) -> Option<()> {
     let mut advanced = false;
 
-    for i in (0..self.sorted_nodes.len()).rev() {
-      let idx = self.sorted_nodes[i];
-      let len = self.get_node_len(idx).ok()?;
-      let node = self.generator.graph.node_weight_mut(idx).unwrap();
+    for i in (0..self.topo_nodes.len()).rev() {
+      let node_index = self.topo_nodes[i];
+      // Gets the number of variants for the current node
+      let len = self.get_node_var_len(node_index).ok()?;
+      // Retrieves the actual node
+      let node = self.generator.graph.node_weight_mut(node_index).unwrap();
       let state = &mut node.state;
 
       if state.index + 1 < len {
@@ -326,7 +337,7 @@ impl<'a> CombinationIterator<'a> {
         // Since we changed one index, the caches of all dependent nodes must be cleared.
         // Clear only dependents by performing a BFS from this node.
         let mut to_clear = VecDeque::new();
-        to_clear.push_back(idx);
+        to_clear.push_back(node_index);
         while let Some(current) = to_clear.pop_front() {
           // Invalidate cache
           if let Some(s) = self.generator.graph.node_weight_mut(current) {
@@ -341,7 +352,6 @@ impl<'a> CombinationIterator<'a> {
             to_clear.push_back(neighbor);
           }
         }
-
         break;
       } else {
         state.index = 0; // Reset and carry over
